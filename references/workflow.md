@@ -1,6 +1,6 @@
 # Release workflow
 
-Last verified: 2026-08-16 against the official
+Last verified: 2026-08-18 against the official
 [App Store Connect OpenAPI 4.4.1](https://developer.apple.com/sample-code/app-store-connect/app-store-connect-openapi-specification.zip).
 
 ## State flow
@@ -80,15 +80,16 @@ every mutation.
 Select stable Xcode by default. Before a build, match the selected Xcode
 ProductVersion, exact build ID, SDK ProductVersion/build, scope, and for
 `APP_STORE` the platform-specific Store build tuple against one exact entry
-in `assets/toolchain-acceptance-2026-08-16.json`; reject absent or partial matches. For
+in `assets/toolchain-acceptance-2026-08-18.json`; reject absent or partial matches. For
 every beta use, first live-check Apple's App Store Connect release notes. If
 Apple acceptance has changed, stop until a newly dated immutable policy is
-reviewed and selected. On 2026-08-16 the stable entry is Xcode 26.6
-ProductVersion `26.6`, build `17F113`, SDK `26.5`, for `APP_STORE` and
+reviewed and selected. On 2026-08-18 the stable entry is Xcode 26.6
+ProductVersion `26.6`, build `17F113`, SDK `26.5.1` on iOS and `26.5` on
+macOS/tvOS/visionOS, for `APP_STORE` and
 `TESTFLIGHT_INTERNAL_ONLY`. The beta entry is Xcode 27 beta 5 build `27A5237l`,
-SDK `27.0`, for both TestFlight scopes only; its `validUntil` is 2026-08-18.
+SDK `27.0`, for both TestFlight scopes only; its `validUntil` is 2026-08-25.
 Even before that date, recheck Apple's official status before every beta use.
-The policy rejects local beta 1 build `27A5194q`.
+The policy rejects any non-current beta, such as build `27A5194q`.
 
 New validation and provenance reservation enforce the policy's current
 `validUntil` and receipt `createdAt` freshness. A completed receipt remains
@@ -100,7 +101,9 @@ selected current dated entry differs from its receipt-bound entry solely in
 `verifiedAt` and/or `validUntil` and keeps the same toolchain identity and
 acceptance data.
 
-The Xcode 26.6 Store tuple has not been exercised on this Mac. Verify the actual
+The Xcode 26.6 SDK identity was measured on 2026-08-18; `platformBuild` is
+recorded equal to `sdkBuild` and is not yet confirmed against a built archive.
+Verify the actual
 selected Xcode and SDK, archive `DTXcodeBuild` / `DTSDKBuild` /
 `DTPlatformBuild`, and live App Store Connect BuildBundle against the
 platform-specific policy values. Stop fail-closed on any mismatch.

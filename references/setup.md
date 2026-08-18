@@ -1,6 +1,6 @@
 # Setup and credentials
 
-Last verified: 2026-08-16 against App Store Connect OpenAPI 4.4.1.
+Last verified: 2026-08-18 against App Store Connect OpenAPI 4.4.1.
 
 ## Register one source copy globally
 
@@ -146,7 +146,7 @@ DEVELOPER_DIR='/Applications/Xcode-beta.app/Contents/Developer' \
 ```
 
 The executable acceptance source is the bundled
-`assets/toolchain-acceptance-2026-08-16.json`. It is an exact, current-only allowlist and
+`assets/toolchain-acceptance-2026-08-18.json`. It is an exact, current-only allowlist and
 fails closed: selected Xcode version, exact build ID, SDK ProductVersion, and
 `--distribution-scope` must all match one entry. A matching major version,
 historically accepted beta, path name, or partially matching entry is not
@@ -156,14 +156,18 @@ Each dated policy file is immutable because receipts bind its path and hash.
 For new Apple acceptance, add a new dated file and update the script default;
 do not rewrite a policy file already referenced by a receipt.
 
-Policy snapshot on 2026-08-16:
+Policy snapshot on 2026-08-18, verified against Apple's release notes that day:
 
 | Channel | Xcode | Exact build | SDK ProductVersion | Permitted scopes | `validUntil` |
 |---|---|---|---|---|---|
-| Stable | Xcode 26.6 | `17F113` | `26.5` | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
-| Beta | Xcode 27 beta 5 | `27A5237l` | `27.0` | `TESTFLIGHT_INTERNAL_ONLY`, `TESTFLIGHT_INTERNAL_EXTERNAL` | `2026-08-18` |
+| Stable | Xcode 26.6 | `17F113` | `26.5.1` iOS, `26.5` macOS/tvOS/visionOS | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
+| Beta | Xcode 27 beta 5 | `27A5237l` | `27.0` | `TESTFLIGHT_INTERNAL_ONLY`, `TESTFLIGHT_INTERNAL_EXTERNAL` | `2026-08-25` |
 
-The locally installed Xcode 27 beta 1 build `27A5194q` is rejected by this
+The same Xcode build ships a different SDK ProductVersion per platform, so the
+stable entry carries `platformSdkVersions` and the check is platform-aware.
+`sdkVersion` remains the fallback for entries without that map.
+
+A non-current beta such as Xcode 27 beta 1 build `27A5194q` is rejected by this
 current-only policy. Release candidates are also rejected unless the exact
 policy has a separately reviewed entry. Apple beta acceptance is volatile:
 live-check the official release notes before every beta use. If acceptance has
@@ -171,7 +175,7 @@ changed, stop until a newly dated immutable policy is reviewed and selected.
 
 `validUntil` is also fail-closed. A new validation or provenance reservation
 must use a policy entry that is current on the receipt `createdAt` date; the
-beta entry above is valid only through 2026-08-18. A completed receipt remains
+beta entry above is valid only through 2026-08-25. A completed receipt remains
 readable as historical evidence after that date because its original creation
 date is checked against the bound policy. Before any later App Store Connect
 distribution or release operation, however, recheck the current bundled policy
@@ -180,11 +184,14 @@ receipt may continue only when the newly selected current dated entry differs
 from its receipt-bound entry in `verifiedAt` and/or `validUntil` alone and keeps
 exactly the same toolchain identity and acceptance data.
 
-The Xcode 26.6 Store tuple in this policy has not been exercised on this Mac.
-Do not treat the example as a local measurement. For `APP_STORE`, verify the
-selected Xcode and SDK ProductBuildVersion, the archive's `DTXcodeBuild`,
-`DTSDKBuild`, and `DTPlatformBuild`, and the live App Store Connect BuildBundle
-against the platform-specific policy tuple. Any mismatch is a fail-closed stop.
+The policy's SDK ProductVersion and `sdkBuild` values were measured from an
+Xcode 26.6 (`17F113`) installation on 2026-08-18. `platformBuild` is recorded
+equal to `sdkBuild` and has **not** been confirmed against a built archive, so
+treat the first `APP_STORE` archive on a new machine as the point where that
+value is proven. For `APP_STORE`, verify the selected Xcode and SDK
+ProductBuildVersion, the archive's `DTXcodeBuild`, `DTSDKBuild`, and
+`DTPlatformBuild`, and the live App Store Connect BuildBundle against the
+platform-specific policy tuple. Any mismatch is a fail-closed stop.
 
 `APP_STORE` is both the default and the only scope that can reach App Review or
 the App Store. TestFlight-only scopes create provenance that those operations

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { dirname, isAbsolute, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -11,10 +13,20 @@ import {
   planSha256,
   withPlanSha256,
 } from "./approval-plan.mjs";
-import { inspectToolchainPolicy } from "./toolchain-policy.mjs";
+import { inspectToolchainPolicy, DISTRIBUTION_SCOPES } from "./toolchain-policy.mjs";
 import { readUploadProvenance } from "./upload-provenance.mjs";
 
 const PLATFORMS = new Set(["IOS", "MAC_OS", "TV_OS", "VISION_OS"]);
+const execFileAsync = promisify(execFile);
+
+async function pathExists(target) {
+  try {
+    await stat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
 const RELEASE_TYPES = new Set(["MANUAL", "AFTER_APPROVAL", "SCHEDULED"]);
 const PHASED_STATES = new Set(["INACTIVE", "ACTIVE", "PAUSED", "COMPLETE"]);
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -22,7 +34,7 @@ const bundledToolchainPolicy = join(
   scriptDirectory,
   "..",
   "assets",
-  "toolchain-acceptance-2026-08-16.json",
+  "toolchain-acceptance-2026-08-18.json",
 );
 
 const ATTRIBUTE_SCHEMAS = {
@@ -939,6 +951,246 @@ async function fetchPriceStatus(appId) {
     manualPrices: { data: manualPrices.data, included: manualPrices.included },
     automaticPrices: { data: automaticPrices.data, included: automaticPrices.included },
   };
+}
+
+const SDK_NAMES = {
+  IOS: "iphoneos",
+  MAC_OS: "macosx",
+  TV_OS: "appletvos",
+  VISION_OS: "xros",
+};
+
+async function measureXcode(developerDir, platform) {
+  if (!isAbsolute(developerDir)) {
+    throw new Error("--developer-dir must be an absolute path");
+  }
+  const sdkName = SDK_NAMES[platform];
+  const env = {
+    ...process.env,
+    DEVELOPER_DIR: developerDir,
+    ASC_KEY_ID: undefined,
+    ASC_ISSUER_ID: undefined,
+    ASC_PRIVATE_KEY_PATH: undefined,
+  };
+  const run = async (args) => {
+    const { stdout } = await execFileAsync("/usr/bin/xcrun", ["xcodebuild", ...args], {
+      env,
+      timeout: 120000,
+      maxBuffer: 1024 * 1024,
+    });
+    return stdout.trim();
+  };
+  const versionOutput = await run(["-version"]);
+  const productVersion = /^Xcode ([0-9.]+)/m.exec(versionOutput)?.[1];
+  const xcodeBuild = /^Build version ([A-Za-z0-9]+)/m.exec(versionOutput)?.[1];
+  if (!productVersion || !xcodeBuild) {
+    throw new Error("could not parse xcodebuild -version output");
+  }
+  const sdkVersion = await run(["-version", "-sdk", sdkName, "ProductVersion"]);
+  const sdkBuild = await run(["-version", "-sdk", sdkName, "ProductBuildVersion"]);
+  return { developerDir, productVersion, xcodeBuild, sdkName, sdkVersion, sdkBuild };
+}
+
+function firstLocalizationList(document, typeName) {
+  const included = Array.isArray(document?.included) ? document.included : [];
+  return included
+    .filter((resource) => resource.type === typeName)
+    .map((resource) => ({ id: resource.id, ...resource.attributes }));
+}
+
+async function initManifest(options) {
+  const bundleId = requiredOption(options, "bundle-id");
+  const platform = enumOption(options, "platform", PLATFORMS, "IOS");
+  const outPath = requiredOption(options, "out");
+  if (!isAbsolute(outPath)) throw new Error("--out must be an absolute path");
+  if (await pathExists(outPath)) {
+    throw new Error(`--out already exists; refusing to overwrite ${outPath}`);
+  }
+  const scope = options["distribution-scope"]
+    ? enumOption(options, "distribution-scope", DISTRIBUTION_SCOPES)
+    : null;
+
+  const app = await resolveApp(bundleId);
+  const appId = app.id;
+
+  const [groups, betaAppLocalizations, versions] = await Promise.all([
+    apiRequest(
+      buildPath("/v1/betaGroups", {
+        "filter[app]": appId,
+        "fields[betaGroups]": "name,isInternalGroup",
+        limit: 200,
+      }),
+    ),
+    apiRequest(
+      buildPath(`/v1/apps/${appId}/betaAppLocalizations`, {
+        "fields[betaAppLocalizations]":
+          "locale,description,feedbackEmail,marketingUrl,privacyPolicyUrl",
+        limit: 50,
+      }),
+    ),
+    apiRequest(
+      buildPath(`/v1/apps/${appId}/appStoreVersions`, {
+        "filter[platform]": platform,
+        "fields[appStoreVersions]":
+          "platform,versionString,appVersionState,releaseType,earliestReleaseDate,copyright,appStoreVersionLocalizations",
+        "fields[appStoreVersionLocalizations]":
+          "locale,description,keywords,marketingUrl,promotionalText,supportUrl,whatsNew",
+        include: "appStoreVersionLocalizations",
+        limit: 5,
+        sort: "-createdDate",
+      }),
+    ),
+  ]);
+
+  const latestVersion = versions.body?.data?.[0]?.attributes ?? null;
+  const storeLocalizations = firstLocalizationList(
+    versions.body,
+    "appStoreVersionLocalizations",
+  );
+  const betaLocalizations = (betaAppLocalizations.body?.data ?? []).map(
+    (resource) => ({ id: resource.id, ...resource.attributes }),
+  );
+  const internalGroupIds = (groups.body?.data ?? [])
+    .filter((group) => group.attributes?.isInternalGroup)
+    .map((group) => group.id);
+
+  let toolchain = {
+    channel: null,
+    expectedXcodeProductVersion: null,
+    expectedXcodeBuild: null,
+    expectedSdkVersion: null,
+    expectedSdkBuild: null,
+    expectedPlatformBuild: null,
+    policyEntryId: null,
+  };
+  let toolchainNote = "not derived: pass --developer-dir to measure the toolchain";
+  if (options["developer-dir"]) {
+    const measured = await measureXcode(options["developer-dir"], platform);
+    const inspection = await inspectToolchainPolicy({
+      policyPath: bundledToolchainPolicy,
+      xcodeBuild: measured.xcodeBuild,
+      xcodeProductVersion: measured.productVersion,
+      sdkVersion: measured.sdkVersion,
+      distributionScope: scope ?? "APP_STORE",
+      platform,
+      sdkBuild: measured.sdkBuild,
+    });
+    toolchain = {
+      channel: inspection.entry.channel,
+      expectedXcodeProductVersion: measured.productVersion,
+      expectedXcodeBuild: measured.xcodeBuild,
+      expectedSdkVersion: measured.sdkVersion,
+      expectedSdkBuild: measured.sdkBuild,
+      expectedPlatformBuild:
+        inspection.entry.storeBuildMetadata?.[platform]?.platformBuild ?? null,
+      policyEntryId: inspection.entry.id,
+    };
+    toolchainNote = `derived from ${measured.developerDir} and policy ${inspection.entry.id}`;
+  }
+
+  const manifest = {
+    schemaVersion: 2,
+    app: { bundleId, appId, platform, teamId: null },
+    delivery: { distributionScope: scope },
+    toolchain,
+    build: {
+      marketingVersion: null,
+      buildNumber: null,
+      appStoreConnectBuildId: null,
+      provenancePath: null,
+      testFlightInternalTestingOnly: scope === "TESTFLIGHT_INTERNAL_ONLY",
+      artifactPath: null,
+      source: null,
+    },
+    testFlight: {
+      audience: "internal",
+      groupIds: internalGroupIds,
+      autoNotifyEnabled: false,
+      localizations: betaLocalizations.map((localization) => ({
+        locale: localization.locale,
+        whatsNew: null,
+        description: localization.description ?? null,
+        feedbackEmail: null,
+        marketingUrl: localization.marketingUrl ?? null,
+        privacyPolicyUrl: localization.privacyPolicyUrl ?? null,
+      })),
+    },
+    appStore: {
+      version: null,
+      copyright: latestVersion?.copyright ?? null,
+      releaseType: latestVersion?.releaseType ?? "MANUAL",
+      earliestReleaseDate: null,
+      phasedRelease: false,
+      localizations: storeLocalizations.map((localization) => ({
+        locale: localization.locale,
+        description: localization.description ?? null,
+        keywords: localization.keywords ?? null,
+        supportUrl: localization.supportUrl ?? null,
+        marketingUrl: localization.marketingUrl ?? null,
+        whatsNew: null,
+        screenshotSets: [],
+        screenshotsAlreadyUploaded: false,
+      })),
+    },
+    review: {
+      contact: { firstName: null, lastName: null, email: null, phone: null },
+      demoAccountRequired: false,
+      demoCredentialReference: null,
+      notes: null,
+    },
+    compliance: {
+      usesNonExemptEncryption: false,
+      exportComplianceConfirmed: false,
+      privacyPublished: false,
+      pricingAndAvailabilityConfirmed: false,
+      legalAgreementsCurrent: false,
+      ageRatingConfirmed: false,
+      contentRightsConfirmed: false,
+    },
+  };
+
+  await writeFile(outPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+    flag: "wx",
+  });
+
+  const needsHuman = [
+    "app.teamId",
+    ...(scope ? [] : ["delivery.distributionScope"]),
+    "build.marketingVersion",
+    "build.buildNumber",
+    "build.artifactPath or build.source",
+    "appStore.version",
+    "testFlight.localizations[].whatsNew",
+    "appStore.localizations[].whatsNew",
+    "appStore.localizations[].screenshotSets",
+    "review.contact.* (email and phone are PII and are never derived)",
+    "review.notes",
+    "all seven compliance flags",
+  ];
+
+  process.stdout.write(
+    `${JSON.stringify(
+      redactSensitive({
+        wrote: outPath,
+        mode: "0600",
+        app: { bundleId, appId, platform, name: app.attributes?.name ?? null },
+        derived: {
+          toolchain: toolchainNote,
+          internalBetaGroupIds: internalGroupIds.length,
+          betaLocalizations: betaLocalizations.length,
+          appStoreLocalizations: storeLocalizations.length,
+          latestVersion: latestVersion?.versionString ?? null,
+          priorVersionFound: Boolean(latestVersion),
+        },
+        stillRequiresHumanInput: needsHuman,
+        nextStep: `node scripts/validate-manifest.mjs ${outPath} --phase plan`,
+      }),
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 async function showStatus(options) {
@@ -2197,6 +2449,8 @@ function printUsage() {
   process.stderr.write(
     [
       "Read-only commands:",
+      "  asc-release.mjs init-manifest --bundle-id ID --out /absolute/release.json",
+      "    [--platform IOS] [--developer-dir /absolute/Developer] [--distribution-scope SCOPE]",
       "  asc-release.mjs status --bundle-id ID [--platform IOS]",
       "  asc-release.mjs wait-build (--app-id ID|--bundle-id ID) --build-number N [--marketing-version V] [--platform IOS]",
       "  asc-release.mjs release-snapshot --bundle-id ID --version-id ID --provenance-file /absolute/receipt.json",
@@ -2245,6 +2499,10 @@ async function main() {
   }
   if (command === "status") {
     await showStatus(options);
+    return;
+  }
+  if (command === "init-manifest") {
+    await initManifest(options);
     return;
   }
   if (command === "wait-build") {

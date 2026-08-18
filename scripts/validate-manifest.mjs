@@ -30,7 +30,7 @@ const bundledToolchainPolicy = join(
   scriptDirectory,
   "..",
   "assets",
-  "toolchain-acceptance-2026-08-16.json",
+  "toolchain-acceptance-2026-08-18.json",
 );
 const SCREENSHOT_DISPLAY_TYPES = new Set([
   "APP_IPHONE_67",

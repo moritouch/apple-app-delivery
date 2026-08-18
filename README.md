@@ -74,9 +74,10 @@ document asks you to perform manually.
    state.
 3. On a first run it asks only three things: the bundle ID, the distribution scope, and
    where this release should stop.
-4. It derives the rest. App resource ID and beta groups come from the API. Xcode version,
-   exact build ID, and SDK versions come from measuring the selected Xcode and matching the
-   toolchain policy. Existing metadata comes from the previous version when there is one.
+4. It derives the rest, typically with a single `asc-release.mjs init-manifest` call. App
+   resource ID and beta groups come from the API. Xcode version, exact build ID, and SDK
+   versions come from measuring the selected Xcode and matching the toolchain policy.
+   Existing metadata comes from the previous version when there is one.
 5. It shows you the drafted manifest, says which values were derived and from where, and
    asks only for what a person genuinely has to decide: versions, build source, screenshot
    directories, review contact, and the seven compliance confirmations.
@@ -109,9 +110,9 @@ for every release. This implementation targets OpenAPI 4.4.1 as of 2026-08-16.
 
 Xcode beta acceptance changes especially often. Verify the release notes live on every
 use, and stop unless the exact allowlist in
-[`assets/toolchain-acceptance-2026-08-16.json`](assets/toolchain-acceptance-2026-08-16.json)
-has been reviewed and selected as a new dated file. The 2026-08-16 beta entry has
-`validUntil=2026-08-18`. Re-checking Apple's official sources is required even inside that
+[`assets/toolchain-acceptance-2026-08-18.json`](assets/toolchain-acceptance-2026-08-18.json)
+has been reviewed and selected as a new dated file. The 2026-08-18 beta entry has
+`validUntil=2026-08-25`. Re-checking Apple's official sources is required even inside that
 window, and the skill stops fail-closed once the entry expires or acceptance changes. See
 [`references/prerelease-xcode.md`](references/prerelease-xcode.md) for the current beta
 policy and the TestFlight-only boundary.
@@ -273,8 +274,26 @@ target app is ready for release.
 
 ## Release manifest
 
-Copy the example into a private working directory outside the skill and edit it without
-adding secrets.
+The quickest path is to generate a draft from live data. This is read-only, writes with
+mode `0600`, and refuses to overwrite an existing file.
+
+```bash
+node "$asc_skill_dir/scripts/asc-release.mjs" init-manifest \
+  --bundle-id 'com.example.app' \
+  --platform IOS \
+  --out '/absolute/private/release-work/release.json' \
+  --developer-dir '/Applications/Xcode.app/Contents/Developer' \
+  --distribution-scope APP_STORE
+```
+
+It resolves the app ID, internal beta group IDs, and any existing per-locale metadata from
+App Store Connect, measures the selected Xcode and SDK and matches them against the bundled
+toolchain policy, and leaves every human-only field null. It then prints the exact list of
+fields that still need a person, so nothing is silently guessed. Contact email and phone are
+never derived: the API client redacts them as PII.
+
+Alternatively, copy the example into a private working directory outside the skill and edit
+it without adding secrets.
 
 ```bash
 cp "$asc_skill_dir/assets/release-manifest.example.json" \
@@ -379,7 +398,7 @@ DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer' \
   --team-id 'ABCDE12345' \
   --distribution-scope APP_STORE \
   --expected-xcode-build '17F113' \
-  --expected-sdk-version '26.5'
+  --expected-sdk-version '26.5.1'
 ```
 
 Only after explicit approval, add the `--execute --confirm CREATE_ARCHIVE --plan-sha256 HASH`
@@ -419,7 +438,7 @@ DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer' \
   --team-id 'ABCDE12345' \
   --distribution-scope APP_STORE \
   --expected-xcode-build '17F113' \
-  --expected-sdk-version '26.5' \
+  --expected-sdk-version '26.5.1' \
   --provenance-output '/absolute/private/release-work/upload-provenance.json' \
   --allow-provisioning-updates
 ```
@@ -431,20 +450,23 @@ DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer' \
 At execution time this is required in addition to the
 `--execute --confirm UPLOAD_ARCHIVE --plan-sha256 HASH` that the dry run displayed.
 
-The above is the stable example from the 2026-08-16 policy (Xcode 26.6 build `17F113`,
-SDK ProductVersion `26.5`). These are not fixed recommended versions; match them exactly
-against the bundled policy and Apple's requirements at execution time. As of this README
-update, Store upload has not been measured with Xcode 26.6 on this Mac. Do not treat policy
-values as locally verified. Confirm that the selected Xcode and SDK ProductBuildVersion,
+The above is the stable example from the 2026-08-18 policy (Xcode 26.6 build `17F113`,
+iOS SDK ProductVersion `26.5.1`). These are not fixed recommended versions; match them
+exactly against the bundled policy and Apple's requirements at execution time. The same
+Xcode build ships a different SDK ProductVersion per platform, so use `26.5` for
+macOS, tvOS, and visionOS. The policy's SDK values were measured from an Xcode 26.6
+installation on 2026-08-18, but `platformBuild` is recorded equal to `sdkBuild` and has
+not been confirmed against a built archive, and no Store upload has been exercised.
+Confirm that the selected Xcode and SDK ProductBuildVersion,
 the archive's `DTXcodeBuild` / `DTSDKBuild` / `DTPlatformBuild`, and the BuildBundle at
 Apple match the manifest and the policy's Store tuple exactly. On any mismatch, stop
 fail-closed rather than proceeding to a production operation.
 
 ### Building a TestFlight-only build with an Xcode beta
 
-As of 2026-08-16 the current beta entry is Xcode 27 beta 5 build `27A5237l` with SDK
+As of 2026-08-18 the current beta entry is Xcode 27 beta 5 build `27A5237l` with SDK
 ProductVersion `27.0`, usable only for internal/external TestFlight. Its `validUntil` is
-`2026-08-18`. Even inside that window, verify Apple's release notes live immediately before
+`2026-08-25`. Even inside that window, verify Apple's release notes live immediately before
 use, confirm that the corresponding dated policy has been selected, and then state the
 maximum reach explicitly. For example, an archive that permits external TestFlight dry runs
 as follows.
@@ -512,7 +534,7 @@ separate explicit approval. See
   --distribution-scope APP_STORE \
   --expected-artifact-xcode-build '17F113' \
   --expected-uploader-xcode-build '17F113' \
-  --expected-sdk-version '26.5' \
+  --expected-sdk-version '26.5.1' \
   --provenance-output '/absolute/private/release-work/upload-provenance.json'
 ```
 
@@ -652,11 +674,11 @@ public issue. See [`SECURITY.md`](SECURITY.md) for details.
 
 Specify the intended Xcode explicitly with `--developer-dir` or `DEVELOPER_DIR`, and check
 that the version, exact build ID, SDK ProductVersion, and scope all match the same entry in
-`assets/toolchain-acceptance-2026-08-16.json`. A beta or RC that is not in the policy, and
+`assets/toolchain-acceptance-2026-08-18.json`. A beta or RC that is not in the policy, and
 values that match only partially, are rejected fail-closed. Verify Apple's official release
 notes live on every beta use, and when a new policy is needed, stop the release and review a
-new dated file separately. In the 2026-08-16 snapshot only beta 5 `27A5237l` is current, and
-beta 1 `27A5194q` is rejected. Beta provenance cannot proceed to the App Store.
+new dated file separately. In the 2026-08-18 snapshot only beta 5 `27A5237l` is current, and
+a non-current beta such as `27A5194q` is rejected. Beta provenance cannot proceed to the App Store.
 
 ### Missing provenance receipt, or scope mismatch
 

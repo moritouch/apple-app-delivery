@@ -13,10 +13,10 @@
     "channel": "STABLE",
     "expectedXcodeProductVersion": "26.6",
     "expectedXcodeBuild": "17F113",
-    "expectedSdkVersion": "26.5",
-    "expectedSdkBuild": "23F77",
-    "expectedPlatformBuild": "23F77",
-    "policyEntryId": "apple-asc-2026-06-25-xcode-26.6"
+    "expectedSdkVersion": "26.5.1",
+    "expectedSdkBuild": "23F81a",
+    "expectedPlatformBuild": "23F81a",
+    "policyEntryId": "apple-asc-2026-08-18-xcode-26.6"
   },
   "build": {
     "marketingVersion": "1.2.0",

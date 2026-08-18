@@ -1,6 +1,6 @@
 # Prerelease Xcode policy
 
-Last policy snapshot: 2026-08-16. Apple acceptance is volatile; live-check the
+Last policy snapshot: 2026-08-18. Apple acceptance is volatile; live-check the
 [App Store Connect release notes](https://developer.apple.com/help/app-store-connect/release-notes/)
 before every beta upload.
 
@@ -25,7 +25,7 @@ approvals. `TESTFLIGHT_INTERNAL_EXTERNAL` is currently beta-only.
 
 ## Fail-closed toolchain acceptance
 
-The bundled `assets/toolchain-acceptance-2026-08-16.json` is the executable exact
+The bundled `assets/toolchain-acceptance-2026-08-18.json` is the executable exact
 allowlist. Before every upload:
 
 1. For beta, read Apple's current release notes and confirm that the named Xcode
@@ -47,16 +47,16 @@ The current policy snapshot contains:
 
 | Channel | Xcode | Build | SDK ProductVersion | Scopes | `validUntil` |
 |---|---|---|---|---|---|
-| Stable | Xcode 26.6 | `17F113` | `26.5` | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
-| Beta | Xcode 27 beta 5 | `27A5237l` | `27.0` | Both TestFlight scopes only | `2026-08-18` |
+| Stable | Xcode 26.6 | `17F113` | `26.5.1` iOS, `26.5` macOS/tvOS/visionOS | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
+| Beta | Xcode 27 beta 5 | `27A5237l` | `27.0` | Both TestFlight scopes only | `2026-08-25` |
 
-The locally installed Xcode 27 beta 1 build `27A5194q` is intentionally rejected
+A non-current beta such as Xcode 27 beta 1 build `27A5194q` is intentionally rejected
 by the current-only policy. Historical acceptance, the same major version, or a
 path containing `Xcode-beta` is not sufficient. RC builds are also rejected
 unless a separately reviewed exact policy entry explicitly allows them.
 
 The beta date is an upper bound, not a substitute for checking Apple. Re-read
-the official release notes before every beta use even through 2026-08-18; after
+the official release notes before every beta use even through 2026-08-25; after
 expiry, new validation and receipt reservation fail closed. A completed receipt
 remains readable as evidence after expiry because its original `createdAt` is
 validated against its bound policy. Distribution and release operations also
@@ -65,7 +65,9 @@ existing receipt can continue only when the newly selected current dated entry
 differs from its receipt-bound entry in `verifiedAt` and/or `validUntil` alone
 while preserving exactly the same toolchain identity and acceptance data.
 
-The stable Xcode 26.6 Store tuple has not been exercised on this Mac. For an
+The stable Xcode 26.6 SDK identity was measured on 2026-08-18; its
+`platformBuild` is recorded equal to `sdkBuild` and is not yet confirmed
+against a built archive. For an
 `APP_STORE` build, compare the actual selected Xcode/SDK, archive
 `DTXcodeBuild` / `DTSDKBuild` / `DTPlatformBuild`, and live App Store Connect
 BuildBundle with the policy's platform values. Any mismatch must stop the flow.

@@ -87,6 +87,22 @@ guessed value fails closed later.
 | `build.appStoreConnectBuildId` | `asc-release.mjs wait-build`, after upload |
 | `build.provenancePath` | the `--provenance-output` path chosen for that upload |
 
+`asc-release.mjs init-manifest` performs the whole derivation in one read-only step and
+writes a draft manifest with mode `0600`, refusing to overwrite an existing file:
+
+```bash
+node <skill-dir>/scripts/asc-release.mjs init-manifest \
+  --bundle-id com.example.app --platform IOS \
+  --out /absolute/private/release-work/release.json \
+  --developer-dir /Applications/Xcode.app/Contents/Developer \
+  --distribution-scope APP_STORE
+```
+
+It fills the derivable fields, leaves every human-only field null, and prints the exact
+list still requiring human input. Omitting `--developer-dir` leaves `toolchain.*` null.
+Omitting `--distribution-scope` leaves `delivery.distributionScope` null, which the
+validator then rejects until a person states it.
+
 Derive the toolchain values by measuring the machine, then pass them through
 `toolchain-policy.mjs inspect` and use its result. Never copy the example values in
 `README.md` or the policy file into a manifest without measuring, and stop fail-closed on
@@ -241,13 +257,13 @@ environment variables. Prefer a team key with App Manager privileges.
 Preflight must verify all of the following.
 
 - Default to stable Xcode. Require an exact match against the bundled
-  `assets/toolchain-acceptance-2026-08-16.json` for the selected Xcode ProductVersion,
+  `assets/toolchain-acceptance-2026-08-18.json` for the selected Xcode ProductVersion,
   exact build ID, SDK ProductVersion/build, scope, and, for `APP_STORE`, the per-platform
   Store tuple. Stop fail-closed on any mismatch.
 - Check Apple's official release notes live for every beta use. If acceptance changed,
   create and review a new dated policy file and stop until the script default is updated.
-  Never rewrite an existing policy. The 2026-08-16 policy permits Xcode 27 beta 5 build
-  `27A5237l` / SDK `27.0` for TestFlight only, with `validUntil=2026-08-18`. Re-check the
+  Never rewrite an existing policy. The 2026-08-18 policy permits Xcode 27 beta 5 build
+  `27A5237l` / SDK `27.0` for TestFlight only, with `validUntil=2026-08-25`. Re-check the
   official sources even inside that window.
 - Validating or reserving a new receipt enforces `createdAt` freshness and the current
   policy expiry. A completed receipt is verified against its receipt-bound policy by
@@ -256,11 +272,14 @@ Preflight must verify all of the following.
   using an existing receipt only when a newly reviewed dated entry differs from the
   receipt-bound entry solely in `verifiedAt` / `validUntil`, with identical toolchain
   identity and acceptance conditions.
-- The 2026-08-16 stable example is Xcode 26.6 ProductVersion `26.6` / build `17F113` /
-  SDK `26.5`, with scopes `APP_STORE` and `TESTFLIGHT_INTERNAL_ONLY`. The Store tuple for
-  Xcode 26.6 has not been measured on this machine, so compare the selected Xcode, the
-  archive's `DTXcodeBuild` / `DTSDKBuild` / `DTPlatformBuild`, and the BuildBundle at
-  Apple against the policy exactly, and stop on any mismatch.
+- The 2026-08-18 stable entry is Xcode 26.6 ProductVersion `26.6` / build `17F113`, with
+  scopes `APP_STORE` and `TESTFLIGHT_INTERNAL_ONLY`. Its SDK ProductVersion is
+  platform-specific: `26.5.1` on iOS and `26.5` on macOS/tvOS/visionOS, carried in
+  `platformSdkVersions`. Those values and `sdkBuild` were measured from an Xcode 26.6
+  installation; `platformBuild` is recorded equal to `sdkBuild` and is not yet confirmed
+  against a built archive. Compare the selected Xcode, the archive's `DTXcodeBuild` /
+  `DTSDKBuild` / `DTPlatformBuild`, and the BuildBundle at Apple against the policy
+  exactly, and stop on any mismatch.
 - App record, bundle ID, and signing/provisioning entitlements
 - Existing builds with the same version/build number
 - Current beta groups, editable App Store version, and active review submission
@@ -278,7 +297,7 @@ When building from Xcode sources, dry run first.
   --bundle-id com.example.app \
   --platform IOS --marketing-version 1.2.0 --build-number 42 \
   --team-id ABCDE12345 --distribution-scope APP_STORE \
-  --expected-xcode-build 17F113 --expected-sdk-version 26.5 \
+  --expected-xcode-build 17F113 --expected-sdk-version 26.5.1 \
   --developer-dir /Applications/Xcode.app/Contents/Developer
 ```
 
