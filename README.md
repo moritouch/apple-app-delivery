@@ -68,7 +68,9 @@ document asks you to perform manually.
 **Every release, in conversation:**
 
 1. You invoke the skill. It checks prerequisites first (Node, Xcode, credentials, a JWT
-   self-test) and stops with a pointer into this README if something is missing.
+   self-test) and stops with a pointer into this README if something is missing. It also
+   checks that the bundle ID and app record exist, and walks you through creating the app
+   record if it does not.
 2. It asks whether a release is already in progress. If you give it an existing manifest,
    it validates each phase to work out where you left off and re-checks that against live
    state.
@@ -89,6 +91,37 @@ asks for one, it is not following `SKILL.md`.
 
 Nothing in this flow writes to Apple until you approve a specific stage, and approvals are
 never reused across stages.
+
+## Provisioning, and the one step you have to do yourself
+
+Almost all of the Apple-side setup is automated behind approval gates.
+
+```bash
+# Read-only: is the bundle ID registered, what capabilities does it carry,
+# and does an App Store Connect app record exist?
+node "$asc_skill_dir/scripts/asc-release.mjs" app-record-guide --bundle-id 'com.example.app'
+
+# Register the bundle ID (dry run first, then approve with CREATE_BUNDLE_ID)
+node "$asc_skill_dir/scripts/asc-release.mjs" provision-bundle-id \
+  --bundle-id 'com.example.app' --name 'Example App'
+
+# Enable a capability (dry run first, then approve with ENABLE_CAPABILITY)
+node "$asc_skill_dir/scripts/asc-release.mjs" provision-capability \
+  --bundle-id 'com.example.app' --capability APPLE_ID_AUTH
+```
+
+Sign In with Apple is `APPLE_ID_AUTH` in the API even though the portal calls it something
+else, and the command accepts either spelling. Without a `--settings-file` it is enabled as
+a primary App ID. Certificates, devices, and provisioning profiles also have APIs, and
+Xcode creates what it needs during upload under the separate `ALLOW_PROVISIONING_UPDATES`
+approval.
+
+**The App Store Connect app record is the exception.** The API has no endpoint that creates
+one, so exactly one step in the whole flow has to be done by hand, in the web interface.
+`app-record-guide` makes that step as short as possible: it checks whether the record
+exists, and when it does not it prints the URL, the required role, the prerequisites, every
+field you must fill with the values already resolved, and which fields can never be changed
+afterwards. Create the record, re-run the command, and the rest continues automatically.
 
 ## Requirements
 

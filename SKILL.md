@@ -55,7 +55,23 @@ node <skill-dir>/scripts/upload-provenance.mjs read \
 A receipt with `uploadCompleted=false` means an earlier upload stopped after reserving. Go
 to `references/failure-runbook.md` and do not upload again.
 
-### 3. On a first run, ask only these three things
+### 3. Check that the app exists before planning a release
+
+```bash
+node <skill-dir>/scripts/asc-release.mjs app-record-guide --bundle-id com.example.app
+```
+
+This is read-only. It reports whether the bundle ID is registered, which capabilities it
+carries, and whether an App Store Connect app record exists. When the record is missing it
+returns a filled-in walkthrough. Hand that walkthrough to the operator as instructions,
+including the values they must type and the fields they can never change afterwards, then
+wait and re-run it rather than guessing that the record appeared.
+
+Never present the missing app record as a skill limitation to work around. The App Store
+Connect API has no endpoint that creates one, so it is a genuine platform boundary and the
+only step in the whole flow that a person must perform by hand.
+
+### 4. On a first run, ask only these three things
 
 - The bundle ID
 - The distribution scope, stated as the maximum reach: `APP_STORE`,
@@ -190,6 +206,8 @@ hash.
 
 | Gate | Required explicit approval | Default |
 |---|---|---|
+| Register a bundle ID | `CREATE_BUNDLE_ID` | dry run |
+| Enable a bundle ID capability | `ENABLE_CAPABILITY` | dry run |
 | Create archive for APP_STORE | `CREATE_ARCHIVE` | dry run, no upload yet |
 | Create stable internal-only TestFlight archive | `CREATE_TESTFLIGHT_ARCHIVE` | dry run, App Store not allowed |
 | Create beta TestFlight-only archive | `CREATE_TESTFLIGHT_PRERELEASE_ARCHIVE` | dry run, App Store not allowed |
@@ -209,6 +227,30 @@ hash.
 Add `--execute --confirm PHRASE --plan-sha256 HASH` only after explicit approval in the
 conversation. Never carry an earlier stage's approval or hash forward to a later stage. If
 a hash does not match at execution time, identify what changed and present a new dry run.
+
+## Provisioning
+
+Everything the Developer Portal needs, apart from the app record, can be created through
+gated commands. Use them instead of sending a beginner to the portal to guess at
+capabilities.
+
+```bash
+node <skill-dir>/scripts/asc-release.mjs list-bundle-ids --bundle-id com.example.app
+node <skill-dir>/scripts/asc-release.mjs provision-bundle-id \
+  --bundle-id com.example.app --name 'Example App' [--bundle-id-platform UNIVERSAL]
+node <skill-dir>/scripts/asc-release.mjs provision-capability \
+  --bundle-id com.example.app --capability APPLE_ID_AUTH [--settings-file /absolute/settings.json]
+```
+
+Sign In with Apple is called `APPLE_ID_AUTH` in the API, not `SIGN_IN_WITH_APPLE`. The
+command accepts the portal wording as an alias and reports both in the approval summary.
+With no `--settings-file`, `APPLE_ID_AUTH` is enabled as a primary App ID
+(`PRIMARY_APP_CONSENT`); pass settings to group it under a different primary App ID.
+
+Both commands refuse to duplicate an existing bundle ID or capability, and they re-check
+live state after approval and before writing. Enabling a capability can invalidate existing
+provisioning profiles, so say that in the approval summary. Provisioning never resolves an
+app record, so it works before one exists.
 
 ## Collect inputs
 

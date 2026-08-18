@@ -155,6 +155,21 @@ function validateUrl(value, label) {
   }
 }
 
+async function readJsonFile(filePath, label) {
+  if (!isAbsolute(filePath)) {
+    throw new Error(`${label} must be an absolute path`);
+  }
+  const fileInfo = await stat(filePath).catch(() => null);
+  if (!fileInfo?.isFile()) {
+    throw new Error(`${label} is not a file: ${filePath}`);
+  }
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch (error) {
+    throw new Error(`Unable to read ${label} as JSON: ${error.message}`);
+  }
+}
+
 async function attributesFromFile(options, schemaName, requiredKeys = []) {
   const filePath = requiredOption(options, "attributes-file");
   if (!isAbsolute(filePath)) {
@@ -1204,6 +1219,139 @@ async function initManifest(options) {
   );
 }
 
+const BUNDLE_ID_PLATFORMS = new Set(["UNIVERSAL", "IOS", "MAC_OS", "SERVICES"]);
+// Apple names the Sign In with Apple capability APPLE_ID_AUTH. The Developer
+// Portal label and the API value differ, which is easy to get wrong, so accept
+// the portal wording as an alias.
+const CAPABILITY_ALIASES = { SIGN_IN_WITH_APPLE: "APPLE_ID_AUTH" };
+const PRIMARY_APPLE_ID_AUTH_SETTINGS = [
+  { key: "APPLE_ID_AUTH_APP_CONSENT", options: [{ key: "PRIMARY_APP_CONSENT" }] },
+];
+
+async function findBundleIdResource(identifier) {
+  const response = await apiRequest(
+    buildPath("/v1/bundleIds", {
+      "filter[identifier]": identifier,
+      "fields[bundleIds]": "name,identifier,platform,seedId",
+    }),
+  );
+  return (
+    (response.body?.data ?? []).find(
+      (resource) => resource.attributes?.identifier === identifier,
+    ) ?? null
+  );
+}
+
+async function listBundleIdCapabilities(bundleIdResourceId) {
+  const response = await apiRequest(
+    `/v1/bundleIds/${bundleIdResourceId}/bundleIdCapabilities`,
+  );
+  return response.body?.data ?? [];
+}
+
+function normalizeCapability(options) {
+  const raw = requiredOption(options, "capability").toUpperCase();
+  const capability = CAPABILITY_ALIASES[raw] ?? raw;
+  if (!/^[A-Z][A-Z0-9_]*$/.test(capability)) {
+    throw new Error("--capability must be an App Store Connect capabilityType");
+  }
+  return { requested: raw, capability };
+}
+
+async function showBundleIds(options) {
+  const identifier = options["bundle-id"];
+  const response = await apiRequest(
+    buildPath("/v1/bundleIds", {
+      "filter[identifier]": identifier,
+      "fields[bundleIds]": "name,identifier,platform,seedId",
+    }),
+  );
+  const rows = await Promise.all(
+    (response.body?.data ?? []).map(async (resource) => ({
+      resourceId: resource.id,
+      ...resource.attributes,
+      capabilities: (await listBundleIdCapabilities(resource.id)).map(
+        (capability) => capability.attributes?.capabilityType,
+      ),
+    })),
+  );
+  process.stdout.write(
+    `${JSON.stringify(redactSensitive({ checkedAt: new Date().toISOString(), bundleIds: rows }), null, 2)}\n`,
+  );
+}
+
+async function showAppRecordGuide(options) {
+  const identifier = requiredOption(options, "bundle-id");
+  const platform = enumOption(options, "platform", PLATFORMS, "IOS");
+  const bundle = await findBundleIdResource(identifier);
+  let app = null;
+  try {
+    app = await resolveApp(identifier);
+  } catch {
+    app = null;
+  }
+  const capabilities = bundle
+    ? (await listBundleIdCapabilities(bundle.id)).map(
+        (capability) => capability.attributes?.capabilityType,
+      )
+    : [];
+
+  const guide = app
+    ? null
+    : {
+        why:
+          "The App Store Connect API has no endpoint that creates an app record, " +
+          "so this one step cannot be automated. Everything before and after it can.",
+        where: "https://appstoreconnect.apple.com/apps",
+        requiredRole: "Account Holder, App Manager, or Admin",
+        beforeYouStart: [
+          "The Account Holder must have signed the current agreements in Business.",
+          bundle
+            ? `The bundle ID ${identifier} is registered and can be selected.`
+            : `Register the bundle ID ${identifier} first, with provision-bundle-id or in the Developer Portal.`,
+        ],
+        steps: [
+          "Open App Store Connect, go to Apps, and click the + button.",
+          "Choose New App.",
+          "Fill the dialog with the values below.",
+          "Click Create.",
+        ],
+        fillInWith: {
+          Platforms: platform === "IOS" ? "iOS" : platform,
+          Name: "the public App Store name, 30 characters or fewer",
+          "Primary Language": "the app's primary language",
+          "Bundle ID": `${identifier}${bundle ? ` (${bundle.attributes?.name})` : ""}`,
+          SKU: "any private identifier unique in your account, never shown to users",
+          "User Access": "Full Access unless you need to restrict it",
+        },
+        cannotBeChangedLater: ["Bundle ID", "SKU", "Primary Language"],
+        afterCreating:
+          `Re-run this command. Once the record exists it reports the app ID and ` +
+          `you can continue with init-manifest.`,
+      };
+
+  process.stdout.write(
+    `${JSON.stringify(
+      redactSensitive({
+        checkedAt: new Date().toISOString(),
+        bundleId: identifier,
+        bundleIdRegistered: Boolean(bundle),
+        bundleIdResourceId: bundle?.id ?? null,
+        capabilities,
+        appRecordExists: Boolean(app),
+        appId: app?.id ?? null,
+        appName: app?.attributes?.name ?? null,
+        nextStep: app
+          ? "The app record exists. Continue with init-manifest."
+          : "Create the app record by hand using the guide below, then re-run this command.",
+        appRecordGuide: guide,
+      }),
+      null,
+      2,
+    )}\n`,
+  );
+}
+
 async function showStatus(options) {
   const bundleId = requiredOption(options, "bundle-id");
   const platform = options.platform
@@ -1699,9 +1847,15 @@ async function runMutation(options, operation) {
     );
   }
   assertPlanSha256(options["plan-sha256"], rawPlan);
-  const app = await resolveApp(operation.bundleId);
-  const verification = await verifyMutationTarget(options, operation, app);
-  if (operation.preflight) await operation.preflight({ app, verification });
+  if (operation.provisioning) {
+    // Provisioning runs before an App Store Connect app record can exist, so it
+    // must not resolve one. It re-checks Developer Portal state instead.
+    if (operation.provisionPreflight) await operation.provisionPreflight();
+  } else {
+    const app = await resolveApp(operation.bundleId);
+    const verification = await verifyMutationTarget(options, operation, app);
+    if (operation.preflight) await operation.preflight({ app, verification });
+  }
   const result = await apiRequest(operation.path, {
     method: operation.method,
     body: operation.body,
@@ -2413,6 +2567,117 @@ async function commandOperation(command, options) {
     };
   }
 
+  if (command === "provision-bundle-id") {
+    const identifier = requiredOption(options, "bundle-id");
+    const name = requiredOption(options, "name");
+    const platform = enumOption(
+      options,
+      "bundle-id-platform",
+      BUNDLE_ID_PLATFORMS,
+      "UNIVERSAL",
+    );
+    const existing = await findBundleIdResource(identifier);
+    if (existing) {
+      throw new Error(
+        `Bundle ID ${identifier} already exists as ${existing.id}; nothing to create`,
+      );
+    }
+    return {
+      command,
+      confirmation: "CREATE_BUNDLE_ID",
+      method: "POST",
+      path: "/v1/bundleIds",
+      provisioning: true,
+      provisionPreflight: async () => {
+        const current = await findBundleIdResource(identifier);
+        if (current) {
+          throw new Error(
+            `Bundle ID ${identifier} now exists as ${current.id}; refusing to create a duplicate`,
+          );
+        }
+      },
+      body: {
+        data: {
+          type: "bundleIds",
+          attributes: { identifier, name, platform },
+        },
+      },
+      approvalContext: { identifier, name, platform },
+      preconditions: [
+        "A bundle ID cannot be renamed to a different identifier or deleted once used by a build.",
+        "This writes to the Apple Developer Portal, not to an App Store Connect app record.",
+      ],
+    };
+  }
+
+  if (command === "provision-capability") {
+    const identifier = requiredOption(options, "bundle-id");
+    const { requested, capability } = normalizeCapability(options);
+    const bundle = await findBundleIdResource(identifier);
+    if (!bundle) {
+      throw new Error(
+        `Bundle ID ${identifier} is not registered; run provision-bundle-id first`,
+      );
+    }
+    const already = (await listBundleIdCapabilities(bundle.id)).find(
+      (entry) => entry.attributes?.capabilityType === capability,
+    );
+    if (already) {
+      throw new Error(
+        `${capability} is already enabled on ${identifier} as ${already.id}`,
+      );
+    }
+    let settings;
+    if (options["settings-file"]) {
+      settings = await readJsonFile(options["settings-file"], "--settings-file");
+      if (!Array.isArray(settings)) {
+        throw new Error("--settings-file must contain a JSON array of settings");
+      }
+    } else if (capability === "APPLE_ID_AUTH") {
+      settings = PRIMARY_APPLE_ID_AUTH_SETTINGS;
+    }
+    return {
+      command,
+      confirmation: "ENABLE_CAPABILITY",
+      method: "POST",
+      path: "/v1/bundleIdCapabilities",
+      provisioning: true,
+      provisionPreflight: async () => {
+        const current = await listBundleIdCapabilities(bundle.id);
+        if (current.some((entry) => entry.attributes?.capabilityType === capability)) {
+          throw new Error(
+            `${capability} became enabled on ${identifier}; refusing to enable it twice`,
+          );
+        }
+      },
+      body: {
+        data: {
+          type: "bundleIdCapabilities",
+          attributes: {
+            capabilityType: capability,
+            ...(settings === undefined ? {} : { settings }),
+          },
+          relationships: {
+            bundleId: { data: { type: "bundleIds", id: bundle.id } },
+          },
+        },
+      },
+      approvalContext: {
+        identifier,
+        bundleIdResourceId: bundle.id,
+        requestedCapability: requested,
+        capabilityType: capability,
+        settings: settings ?? null,
+      },
+      preconditions: [
+        "Enabling a capability can invalidate existing provisioning profiles.",
+        capability === "APPLE_ID_AUTH"
+          ? "APPLE_ID_AUTH defaults to PRIMARY_APP_CONSENT; pass --settings-file to group it under another primary App ID."
+          : "Confirm the capability matches the app's entitlements.",
+      ],
+    };
+  }
+
   if (command === "set-build-encryption") {
     const buildId = resourceId(options, "build-id");
     const usesNonExemptEncryption = booleanValue(
@@ -2460,6 +2725,8 @@ function printUsage() {
   process.stderr.write(
     [
       "Read-only commands:",
+      "  asc-release.mjs app-record-guide --bundle-id ID [--platform IOS]",
+      "  asc-release.mjs list-bundle-ids [--bundle-id ID]",
       "  asc-release.mjs init-manifest --bundle-id ID --out /absolute/release.json",
       "    [--platform IOS] [--developer-dir /absolute/Developer] [--distribution-scope SCOPE]",
       "  asc-release.mjs status --bundle-id ID [--platform IOS]",
@@ -2469,6 +2736,8 @@ function printUsage() {
       "",
       "Mutation commands require --bundle-id ID and are dry-runs unless --execute,",
       "the printed --confirm phrase, and --plan-sha256 HASH are supplied:",
+      "  provision-bundle-id --name NAME [--bundle-id-platform UNIVERSAL]",
+      "  provision-capability --capability TYPE [--settings-file /absolute/settings.json]",
       "  add-beta-group --group-id ID --build-id ID --provenance-file /absolute/receipt.json",
       "  create-beta-build-localization --build-id ID --locale LOCALE --attributes-file /absolute/attributes.json",
       "  update-beta-build-localization --localization-id ID --attributes-file /absolute/attributes.json",
@@ -2514,6 +2783,14 @@ async function main() {
   }
   if (command === "init-manifest") {
     await initManifest(options);
+    return;
+  }
+  if (command === "list-bundle-ids") {
+    await showBundleIds(options);
+    return;
+  }
+  if (command === "app-record-guide") {
+    await showAppRecordGuide(options);
     return;
   }
   if (command === "wait-build") {
