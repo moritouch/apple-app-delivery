@@ -398,7 +398,7 @@ DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer' \
   --team-id 'ABCDE12345' \
   --distribution-scope APP_STORE \
   --expected-xcode-build '17F113' \
-  --expected-sdk-version '26.5.1'
+  --expected-sdk-version '26.5'
 ```
 
 Only after explicit approval, add the `--execute --confirm CREATE_ARCHIVE --plan-sha256 HASH`
@@ -438,7 +438,7 @@ DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer' \
   --team-id 'ABCDE12345' \
   --distribution-scope APP_STORE \
   --expected-xcode-build '17F113' \
-  --expected-sdk-version '26.5.1' \
+  --expected-sdk-version '26.5' \
   --provenance-output '/absolute/private/release-work/upload-provenance.json' \
   --allow-provisioning-updates
 ```
@@ -451,12 +451,17 @@ At execution time this is required in addition to the
 `--execute --confirm UPLOAD_ARCHIVE --plan-sha256 HASH` that the dry run displayed.
 
 The above is the stable example from the 2026-08-18 policy (Xcode 26.6 build `17F113`,
-iOS SDK ProductVersion `26.5.1`). These are not fixed recommended versions; match them
-exactly against the bundled policy and Apple's requirements at execution time. The same
-Xcode build ships a different SDK ProductVersion per platform, so use `26.5` for
-macOS, tvOS, and visionOS. The policy's SDK values were measured from an Xcode 26.6
-installation on 2026-08-18, but `platformBuild` is recorded equal to `sdkBuild` and has
-not been confirmed against a built archive, and no Store upload has been exercised.
+SDK version `26.5`). These are not fixed recommended versions; match them exactly
+against the bundled policy and Apple's requirements at execution time.
+
+`--expected-sdk-version` is the canonical `SDKVersion`, the value `DTSDKName` encodes as
+`iphoneos26.5`. Read it with `xcodebuild -version -sdk iphoneos SDKVersion`. Do not use
+`ProductVersion`, which reports `26.5.1` for the same SDK and matches nothing an archive
+records. The exactness comes from `ProductBuildVersion` (`23F81a`), stored as `sdkBuild`.
+
+The policy's values were measured from an Xcode 26.6 installation on 2026-08-18, and an
+iOS archive confirmed `DTSDKBuild` and `DTPlatformBuild` both equal `23F81a`. The other
+platforms' `platformBuild` values are unconfirmed, and no Store upload has been exercised.
 Confirm that the selected Xcode and SDK ProductBuildVersion,
 the archive's `DTXcodeBuild` / `DTSDKBuild` / `DTPlatformBuild`, and the BuildBundle at
 Apple match the manifest and the policy's Store tuple exactly. On any mismatch, stop
@@ -534,7 +539,7 @@ separate explicit approval. See
   --distribution-scope APP_STORE \
   --expected-artifact-xcode-build '17F113' \
   --expected-uploader-xcode-build '17F113' \
-  --expected-sdk-version '26.5.1' \
+  --expected-sdk-version '26.5' \
   --provenance-output '/absolute/private/release-work/upload-provenance.json'
 ```
 
@@ -673,7 +678,7 @@ public issue. See [`SECURITY.md`](SECURITY.md) for details.
 ### Rejected as a prerelease Xcode
 
 Specify the intended Xcode explicitly with `--developer-dir` or `DEVELOPER_DIR`, and check
-that the version, exact build ID, SDK ProductVersion, and scope all match the same entry in
+that the version, exact build ID, SDK version, and scope all match the same entry in
 `assets/toolchain-acceptance-2026-08-18.json`. A beta or RC that is not in the policy, and
 values that match only partially, are rejected fail-closed. Verify Apple's official release
 notes live on every beta use, and when a new policy is needed, stop the release and review a

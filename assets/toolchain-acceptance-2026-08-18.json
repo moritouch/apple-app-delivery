@@ -9,12 +9,6 @@
       "xcodeBuild": "17F113",
       "channel": "STABLE",
       "sdkVersion": "26.5",
-      "platformSdkVersions": {
-        "IOS": "26.5.1",
-        "MAC_OS": "26.5",
-        "TV_OS": "26.5",
-        "VISION_OS": "26.5"
-      },
       "distributionScopes": [
         "APP_STORE",
         "TESTFLIGHT_INTERNAL_ONLY"

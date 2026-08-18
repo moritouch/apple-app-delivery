@@ -84,8 +84,7 @@ in `assets/toolchain-acceptance-2026-08-18.json`; reject absent or partial match
 every beta use, first live-check Apple's App Store Connect release notes. If
 Apple acceptance has changed, stop until a newly dated immutable policy is
 reviewed and selected. On 2026-08-18 the stable entry is Xcode 26.6
-ProductVersion `26.6`, build `17F113`, SDK `26.5.1` on iOS and `26.5` on
-macOS/tvOS/visionOS, for `APP_STORE` and
+ProductVersion `26.6`, build `17F113`, SDK version `26.5`, for `APP_STORE` and
 `TESTFLIGHT_INTERNAL_ONLY`. The beta entry is Xcode 27 beta 5 build `27A5237l`,
 SDK `27.0`, for both TestFlight scopes only; its `validUntil` is 2026-08-25.
 Even before that date, recheck Apple's official status before every beta use.
@@ -101,9 +100,9 @@ selected current dated entry differs from its receipt-bound entry solely in
 `verifiedAt` and/or `validUntil` and keeps the same toolchain identity and
 acceptance data.
 
-The Xcode 26.6 SDK identity was measured on 2026-08-18; `platformBuild` is
-recorded equal to `sdkBuild` and is not yet confirmed against a built archive.
-Verify the actual
+The Xcode 26.6 SDK identity was measured on 2026-08-18, and an iOS archive
+confirmed `DTSDKBuild` and `DTPlatformBuild` both equal `23F81a`. Other
+platforms remain unconfirmed. Verify the actual
 selected Xcode and SDK, archive `DTXcodeBuild` / `DTSDKBuild` /
 `DTPlatformBuild`, and live App Store Connect BuildBundle against the
 platform-specific policy values. Stop fail-closed on any mismatch.

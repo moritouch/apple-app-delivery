@@ -13,7 +13,7 @@
     "channel": "STABLE",
     "expectedXcodeProductVersion": "26.6",
     "expectedXcodeBuild": "17F113",
-    "expectedSdkVersion": "26.5.1",
+    "expectedSdkVersion": "26.5",
     "expectedSdkBuild": "23F81a",
     "expectedPlatformBuild": "23F81a",
     "policyEntryId": "apple-asc-2026-08-18-xcode-26.6"

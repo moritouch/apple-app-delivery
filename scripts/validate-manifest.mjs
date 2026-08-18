@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { inspectToolchainPolicy } from "./toolchain-policy.mjs";
 import { readUploadProvenance } from "./upload-provenance.mjs";
 
+const APP_STORE_PHASES = new Set(["app-review", "release"]);
 const PHASES = new Set([
   "plan",
   "upload",
@@ -117,7 +118,7 @@ async function fileSha256(path) {
   return hash.digest("hex");
 }
 
-async function validateBase(manifest) {
+async function validateBase(manifest, phase) {
   if (manifest.schemaVersion !== 2) fail("schemaVersion must be 2");
   requireString(manifest.app?.bundleId, "app.bundleId");
   const platform = requireString(manifest.app?.platform, "app.platform").toUpperCase();
@@ -203,23 +204,37 @@ async function validateBase(manifest) {
   }
 
   if (distributionScope === "APP_STORE") {
-    if (manifest.appStore?.version !== manifest.build?.marketingVersion) {
-      fail("appStore.version must match build.marketingVersion");
+    // APP_STORE is the maximum reach, not a commitment to submit now. A release
+    // that stops at TestFlight must not be forced to supply App Store metadata,
+    // so require it only from the App Store phases onward. Anything supplied
+    // earlier still has to be self-consistent.
+    const appStoreRequired = APP_STORE_PHASES.has(phase);
+    const hasAppStoreSection =
+      manifest.appStore !== null && manifest.appStore !== undefined;
+    if (appStoreRequired || manifest.appStore?.version != null) {
+      if (manifest.appStore?.version !== manifest.build?.marketingVersion) {
+        fail("appStore.version must match build.marketingVersion");
+      }
     }
-    const releaseType = requireString(
-      manifest.appStore?.releaseType,
-      "appStore.releaseType",
-    ).toUpperCase();
-    if (!RELEASE_TYPES.has(releaseType)) {
-      fail(`Unsupported release type: ${releaseType}`);
+    if (appStoreRequired || manifest.appStore?.releaseType != null) {
+      const releaseType = requireString(
+        manifest.appStore?.releaseType,
+        "appStore.releaseType",
+      ).toUpperCase();
+      if (!RELEASE_TYPES.has(releaseType)) {
+        fail(`Unsupported release type: ${releaseType}`);
+      }
+      if (
+        releaseType === "SCHEDULED" &&
+        Number.isNaN(Date.parse(manifest.appStore?.earliestReleaseDate ?? ""))
+      ) {
+        fail(
+          "appStore.earliestReleaseDate must be an ISO 8601 date-time for SCHEDULED",
+        );
+      }
     }
-    if (
-      releaseType === "SCHEDULED" &&
-      Number.isNaN(Date.parse(manifest.appStore?.earliestReleaseDate ?? ""))
-    ) {
-      fail(
-        "appStore.earliestReleaseDate must be an ISO 8601 date-time for SCHEDULED",
-      );
+    if (appStoreRequired && !hasAppStoreSection) {
+      fail("appStore is required for an App Store phase");
     }
   } else if (manifest.appStore !== null) {
     fail("appStore must be null for a TestFlight-only distribution scope");
@@ -462,7 +477,7 @@ async function main() {
 
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   rejectSecrets(manifest);
-  const base = await validateBase(manifest);
+  const base = await validateBase(manifest, phase);
 
   let artifact = null;
   if (phase === "upload") artifact = await validateUpload(manifest);

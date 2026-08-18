@@ -376,7 +376,7 @@ altool_path=$(node -e 'process.stdout.write(require("node:fs").realpathSync(proc
 xcode_version_output=$("${xcode_environment[@]}" "$xcodebuild_tool_path" -version)
 uploader_xcode_build=$(sed -nE 's/^Build version (.+)$/\1/p' <<<"$xcode_version_output" | head -n 1)
 uploader_xcode_product_version=$(sed -nE 's/^Xcode ([0-9]+(\.[0-9]+){1,2}).*/\1/p' <<<"$xcode_version_output" | head -n 1)
-uploader_sdk_version=$("${xcode_environment[@]}" "$xcodebuild_tool_path" -version -sdk "$expected_platform_name" ProductVersion)
+uploader_sdk_version=$("${xcode_environment[@]}" "$xcodebuild_tool_path" -version -sdk "$expected_platform_name" SDKVersion)
 uploader_sdk_build_version=$("${xcode_environment[@]}" "$xcodebuild_tool_path" -version -sdk "$expected_platform_name" ProductBuildVersion)
 printf '%s\n' "$xcode_version_output" >&2
 printf 'altool path: %s\n' "$altool_path" >&2
@@ -422,7 +422,7 @@ verify_uploader_toolchain_unchanged() {
   current_version=$("${xcode_environment[@]}" "$current_xcodebuild" -version)
   current_build=$(sed -nE 's/^Build version (.+)$/\1/p' <<<"$current_version" | head -n 1)
   current_product_version=$(sed -nE 's/^Xcode ([0-9]+(\.[0-9]+){1,2}).*/\1/p' <<<"$current_version" | head -n 1)
-  current_sdk=$("${xcode_environment[@]}" "$current_xcodebuild" -version -sdk "$expected_platform_name" ProductVersion)
+  current_sdk=$("${xcode_environment[@]}" "$current_xcodebuild" -version -sdk "$expected_platform_name" SDKVersion)
   current_sdk_build=$("${xcode_environment[@]}" "$current_xcodebuild" -version -sdk "$expected_platform_name" ProductBuildVersion)
   current_policy=$(node "$script_dir/toolchain-policy.mjs" inspect \
     --policy "$toolchain_policy" --xcode-build "$current_build" \

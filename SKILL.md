@@ -77,7 +77,7 @@ guessed value fails closed later.
 | `app.appId` | `asc-release.mjs status --bundle-id ID` |
 | `app.teamId` | `xcodebuild -showBuildSettings` `DEVELOPMENT_TEAM` when a source root is given; otherwise confirm with the operator |
 | `toolchain.expectedXcodeProductVersion`, `toolchain.expectedXcodeBuild` | `xcodebuild -version` under the chosen `DEVELOPER_DIR` |
-| `toolchain.expectedSdkVersion` | `xcodebuild -version -sdk <platform sdk> ProductVersion` |
+| `toolchain.expectedSdkVersion` | `xcodebuild -version -sdk <platform sdk> SDKVersion`. This is the canonical version that `DTSDKName` encodes; never use `ProductVersion`, which differs |
 | `toolchain.expectedSdkBuild` | `xcodebuild -version -sdk <platform sdk> ProductBuildVersion` |
 | `toolchain.expectedPlatformBuild` | the policy entry's `storeBuildMetadata[platform].platformBuild`. `xcodebuild` does not report it, and the archive's `DTPlatformBuild` is verified against it after the build |
 | `toolchain.channel`, `toolchain.policyEntryId` | `toolchain-policy.mjs inspect` output `entry.channel` and `entry.id` |
@@ -258,7 +258,7 @@ Preflight must verify all of the following.
 
 - Default to stable Xcode. Require an exact match against the bundled
   `assets/toolchain-acceptance-2026-08-18.json` for the selected Xcode ProductVersion,
-  exact build ID, SDK ProductVersion/build, scope, and, for `APP_STORE`, the per-platform
+  exact build ID, SDK version and build, scope, and, for `APP_STORE`, the per-platform
   Store tuple. Stop fail-closed on any mismatch.
 - Check Apple's official release notes live for every beta use. If acceptance changed,
   create and review a new dated policy file and stop until the script default is updated.
@@ -273,13 +273,15 @@ Preflight must verify all of the following.
   receipt-bound entry solely in `verifiedAt` / `validUntil`, with identical toolchain
   identity and acceptance conditions.
 - The 2026-08-18 stable entry is Xcode 26.6 ProductVersion `26.6` / build `17F113`, with
-  scopes `APP_STORE` and `TESTFLIGHT_INTERNAL_ONLY`. Its SDK ProductVersion is
-  platform-specific: `26.5.1` on iOS and `26.5` on macOS/tvOS/visionOS, carried in
-  `platformSdkVersions`. Those values and `sdkBuild` were measured from an Xcode 26.6
-  installation; `platformBuild` is recorded equal to `sdkBuild` and is not yet confirmed
-  against a built archive. Compare the selected Xcode, the archive's `DTXcodeBuild` /
-  `DTSDKBuild` / `DTPlatformBuild`, and the BuildBundle at Apple against the policy
-  exactly, and stop on any mismatch.
+  scopes `APP_STORE` and `TESTFLIGHT_INTERNAL_ONLY`, and SDK version `26.5`. An SDK has
+  three distinct identifiers: `SDKVersion` (`26.5`, what `DTSDKName` encodes as
+  `iphoneos26.5` and what the policy stores), `ProductBuildVersion` (`23F81a`, stored as
+  `sdkBuild`), and `ProductVersion` (`26.5.1`, from the SDK's own `SystemVersion.plist`,
+  which no archive records and which this skill never compares). An iOS archive confirmed
+  `DTSDKBuild` and `DTPlatformBuild` both equal `23F81a`; the other platforms'
+  `platformBuild` values are unconfirmed. Compare the selected Xcode, the archive's
+  `DTXcodeBuild` / `DTSDKBuild` / `DTPlatformBuild`, and the BuildBundle at Apple against
+  the policy exactly, and stop on any mismatch.
 - App record, bundle ID, and signing/provisioning entitlements
 - Existing builds with the same version/build number
 - Current beta groups, editable App Store version, and active review submission
@@ -297,7 +299,7 @@ When building from Xcode sources, dry run first.
   --bundle-id com.example.app \
   --platform IOS --marketing-version 1.2.0 --build-number 42 \
   --team-id ABCDE12345 --distribution-scope APP_STORE \
-  --expected-xcode-build 17F113 --expected-sdk-version 26.5.1 \
+  --expected-xcode-build 17F113 --expected-sdk-version 26.5 \
   --developer-dir /Applications/Xcode.app/Contents/Developer
 ```
 

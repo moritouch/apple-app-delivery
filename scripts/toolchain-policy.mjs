@@ -16,6 +16,9 @@ export const DISTRIBUTION_SCOPES = new Set([
   "TESTFLIGHT_INTERNAL_ONLY",
   "TESTFLIGHT_INTERNAL_EXTERNAL",
 ]);
+const bundledPolicyPath = fileURLToPath(
+  new URL("../assets/toolchain-acceptance-2026-08-18.json", import.meta.url),
+);
 const OFFICIAL_SOURCE_URLS = new Set([
   "https://developer.apple.com/help/app-store-connect/release-notes/",
   "https://developer.apple.com/news/releases/",
@@ -120,42 +123,25 @@ function normalizeStoreBuildMetadata(value, label, channel, distributionScopes) 
   );
 }
 
-function normalizePlatformSdkVersions(value, label) {
-  if (value === undefined || value === null) return null;
-  assertExactKeys(value, PLATFORMS, label);
-  return Object.fromEntries(
-    [...PLATFORMS].map((platform) => [
-      platform,
-      requiredString(
-        value[platform],
-        `${label}.${platform}`,
-        /^\d+(?:\.\d+){1,2}$/,
-      ),
-    ]),
-  );
-}
-
 export function normalizePolicyEntry(value, label = "policy entry") {
-  const requiredEntryKeys = [
-    "id",
-    "xcodeVersion",
-    "xcodeProductVersion",
-    "xcodeBuild",
-    "channel",
-    "sdkVersion",
-    "distributionScopes",
-    "storeBuildMetadata",
-    "acceptedAt",
-    "verifiedAt",
-    "validUntil",
-    "officialSourceUrls",
-  ];
-  // platformSdkVersions is optional so that policy files written before it
-  // existed stay loadable; receipts bind those files by path and hash.
-  const entryKeys = isRecord(value) && Object.hasOwn(value, "platformSdkVersions")
-    ? [...requiredEntryKeys, "platformSdkVersions"]
-    : requiredEntryKeys;
-  assertExactKeys(value, entryKeys, label);
+  assertExactKeys(
+    value,
+    [
+      "id",
+      "xcodeVersion",
+      "xcodeProductVersion",
+      "xcodeBuild",
+      "channel",
+      "sdkVersion",
+      "distributionScopes",
+      "storeBuildMetadata",
+      "acceptedAt",
+      "verifiedAt",
+      "validUntil",
+      "officialSourceUrls",
+    ],
+    label,
+  );
 
   const id = requiredString(value.id, `${label}.id`, /^[a-z0-9][a-z0-9.-]+$/);
   const xcodeVersion = requiredString(
@@ -241,10 +227,6 @@ export function normalizePolicyEntry(value, label = "policy entry") {
     xcodeBuild,
     channel,
     sdkVersion,
-    platformSdkVersions: normalizePlatformSdkVersions(
-      value.platformSdkVersions,
-      `${label}.platformSdkVersions`,
-    ),
     distributionScopes,
     storeBuildMetadata,
     acceptedAt,
@@ -451,22 +433,9 @@ export async function inspectToolchainPolicy({
       `Xcode product version ${productVersion} does not match policy ${entry.xcodeProductVersion} for build ${build}`,
     );
   }
-  let normalizedPlatform;
-  if (platform !== undefined && platform !== null && `${platform}`.trim() !== "") {
-    normalizedPlatform = requiredString(platform, "--platform").toUpperCase();
-    if (!PLATFORMS.has(normalizedPlatform)) {
-      throw new Error("--platform must be IOS, MAC_OS, TV_OS, or VISION_OS");
-    }
-  }
-  // The same Xcode build ships a different SDK ProductVersion per platform, so
-  // prefer the per-platform value and fall back only when no platform is given.
-  const expectedSdkVersion =
-    (normalizedPlatform && entry.platformSdkVersions?.[normalizedPlatform]) ||
-    entry.sdkVersion;
-  if (expectedSdkVersion !== sdk) {
+  if (entry.sdkVersion !== sdk) {
     throw new Error(
-      `SDK version ${sdk} does not match policy ${expectedSdkVersion} for Xcode build ${build}` +
-        (normalizedPlatform ? ` on ${normalizedPlatform}` : ""),
+      `SDK version ${sdk} does not match policy ${entry.sdkVersion} for Xcode build ${build}`,
     );
   }
   if (!entry.distributionScopes.includes(scope)) {
@@ -475,8 +444,9 @@ export async function inspectToolchainPolicy({
     );
   }
   if (scope === "APP_STORE") {
-    if (!normalizedPlatform) {
-      throw new Error("--platform is required for APP_STORE");
+    const normalizedPlatform = requiredString(platform, "--platform").toUpperCase();
+    if (!PLATFORMS.has(normalizedPlatform)) {
+      throw new Error("--platform must be IOS, MAC_OS, TV_OS, or VISION_OS");
     }
     const expectedBuilds = entry.storeBuildMetadata?.[normalizedPlatform];
     if (!expectedBuilds) {
@@ -552,6 +522,9 @@ function parseOptions(args) {
   for (const name of Object.keys(options)) {
     if (!allowed.has(name)) throw new Error(`unknown option: ${name}`);
   }
+  if (!Object.hasOwn(options, "--policy")) {
+    options["--policy"] = bundledPolicyPath;
+  }
   for (const name of [
     "--policy",
     "--xcode-build",
@@ -566,7 +539,8 @@ function parseOptions(args) {
 
 function usage() {
   return [
-    "Usage: toolchain-policy.mjs inspect --policy FILE --xcode-build BUILD",
+    "Usage: toolchain-policy.mjs inspect [--policy FILE] --xcode-build BUILD",
+    "  --policy defaults to the bundled dated policy; an override must be absolute.",
     "  --xcode-product-version VERSION",
     "  --sdk-version VERSION --distribution-scope SCOPE",
     "  [--platform PLATFORM --sdk-build BUILD --platform-build BUILD]",

@@ -47,7 +47,7 @@ The current policy snapshot contains:
 
 | Channel | Xcode | Build | SDK ProductVersion | Scopes | `validUntil` |
 |---|---|---|---|---|---|
-| Stable | Xcode 26.6 | `17F113` | `26.5.1` iOS, `26.5` macOS/tvOS/visionOS | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
+| Stable | Xcode 26.6 | `17F113` | `26.5` | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
 | Beta | Xcode 27 beta 5 | `27A5237l` | `27.0` | Both TestFlight scopes only | `2026-08-25` |
 
 A non-current beta such as Xcode 27 beta 1 build `27A5194q` is intentionally rejected
@@ -65,9 +65,9 @@ existing receipt can continue only when the newly selected current dated entry
 differs from its receipt-bound entry in `verifiedAt` and/or `validUntil` alone
 while preserving exactly the same toolchain identity and acceptance data.
 
-The stable Xcode 26.6 SDK identity was measured on 2026-08-18; its
-`platformBuild` is recorded equal to `sdkBuild` and is not yet confirmed
-against a built archive. For an
+The stable Xcode 26.6 SDK identity was measured on 2026-08-18, and an iOS
+archive confirmed `DTSDKBuild` and `DTPlatformBuild` both equal `23F81a`. The
+other platforms' `platformBuild` values remain unconfirmed. For an
 `APP_STORE` build, compare the actual selected Xcode/SDK, archive
 `DTXcodeBuild` / `DTSDKBuild` / `DTPlatformBuild`, and live App Store Connect
 BuildBundle with the policy's platform values. Any mismatch must stop the flow.

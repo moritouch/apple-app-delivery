@@ -138,16 +138,16 @@ Select Xcode per process instead of changing the machine globally:
 ```bash
 DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer' xcodebuild -version
 DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer' \
-  xcodebuild -version -sdk iphoneos ProductVersion
+  xcodebuild -version -sdk iphoneos SDKVersion
 
 DEVELOPER_DIR='/Applications/Xcode-beta.app/Contents/Developer' xcodebuild -version
 DEVELOPER_DIR='/Applications/Xcode-beta.app/Contents/Developer' \
-  xcodebuild -version -sdk iphoneos ProductVersion
+  xcodebuild -version -sdk iphoneos SDKVersion
 ```
 
 The executable acceptance source is the bundled
 `assets/toolchain-acceptance-2026-08-18.json`. It is an exact, current-only allowlist and
-fails closed: selected Xcode version, exact build ID, SDK ProductVersion, and
+fails closed: selected Xcode version, exact build ID, SDK version, and
 `--distribution-scope` must all match one entry. A matching major version,
 historically accepted beta, path name, or partially matching entry is not
 enough. Do not broaden or bypass this policy during a live release.
@@ -158,14 +158,17 @@ do not rewrite a policy file already referenced by a receipt.
 
 Policy snapshot on 2026-08-18, verified against Apple's release notes that day:
 
-| Channel | Xcode | Exact build | SDK ProductVersion | Permitted scopes | `validUntil` |
+| Channel | Xcode | Exact build | SDK version | Permitted scopes | `validUntil` |
 |---|---|---|---|---|---|
-| Stable | Xcode 26.6 | `17F113` | `26.5.1` iOS, `26.5` macOS/tvOS/visionOS | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
+| Stable | Xcode 26.6 | `17F113` | `26.5` | `APP_STORE`, `TESTFLIGHT_INTERNAL_ONLY` | `2026-09-16` |
 | Beta | Xcode 27 beta 5 | `27A5237l` | `27.0` | `TESTFLIGHT_INTERNAL_ONLY`, `TESTFLIGHT_INTERNAL_EXTERNAL` | `2026-08-25` |
 
-The same Xcode build ships a different SDK ProductVersion per platform, so the
-stable entry carries `platformSdkVersions` and the check is platform-aware.
-`sdkVersion` remains the fallback for entries without that map.
+An SDK exposes three distinct identifiers and they must not be interchanged.
+`SDKVersion` is the canonical version (`26.5`) that `DTSDKName` encodes as
+`iphoneos26.5`, and it is the value the policy and `--expected-sdk-version`
+use. `ProductBuildVersion` (`23F81a`) is the exact build recorded as
+`sdkBuild`. `ProductVersion` (`26.5.1`) comes from the SDK's own
+`SystemVersion.plist`, is not what an archive records, and is not used here.
 
 A non-current beta such as Xcode 27 beta 1 build `27A5194q` is rejected by this
 current-only policy. Release candidates are also rejected unless the exact
@@ -184,13 +187,13 @@ receipt may continue only when the newly selected current dated entry differs
 from its receipt-bound entry in `verifiedAt` and/or `validUntil` alone and keeps
 exactly the same toolchain identity and acceptance data.
 
-The policy's SDK ProductVersion and `sdkBuild` values were measured from an
-Xcode 26.6 (`17F113`) installation on 2026-08-18. `platformBuild` is recorded
-equal to `sdkBuild` and has **not** been confirmed against a built archive, so
-treat the first `APP_STORE` archive on a new machine as the point where that
-value is proven. For `APP_STORE`, verify the selected Xcode and SDK
-ProductBuildVersion, the archive's `DTXcodeBuild`, `DTSDKBuild`, and
-`DTPlatformBuild`, and the live App Store Connect BuildBundle against the
+The policy's SDK version and `sdkBuild` values were measured from an Xcode 26.6
+(`17F113`) installation on 2026-08-18. For iOS, a real archive built with that
+Xcode confirmed `DTSDKBuild` and `DTPlatformBuild` both equal `23F81a`. The
+macOS, tvOS, and visionOS `platformBuild` values are still recorded equal to
+`sdkBuild` without archive confirmation. For `APP_STORE`, verify the selected
+Xcode and SDK ProductBuildVersion, the archive's `DTXcodeBuild`, `DTSDKBuild`,
+and `DTPlatformBuild`, and the live App Store Connect BuildBundle against the
 platform-specific policy tuple. Any mismatch is a fail-closed stop.
 
 `APP_STORE` is both the default and the only scope that can reach App Review or

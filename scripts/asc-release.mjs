@@ -986,7 +986,10 @@ async function measureXcode(developerDir, platform) {
   if (!productVersion || !xcodeBuild) {
     throw new Error("could not parse xcodebuild -version output");
   }
-  const sdkVersion = await run(["-version", "-sdk", sdkName, "ProductVersion"]);
+  // SDKVersion is the canonical SDK identity that DTSDKName encodes
+  // (iphoneos26.5). ProductVersion is a different value (26.5.1) and must not
+  // be used for policy or archive comparison.
+  const sdkVersion = await run(["-version", "-sdk", sdkName, "SDKVersion"]);
   const sdkBuild = await run(["-version", "-sdk", sdkName, "ProductBuildVersion"]);
   return { developerDir, productVersion, xcodeBuild, sdkName, sdkVersion, sdkBuild };
 }
@@ -1032,17 +1035,25 @@ async function initManifest(options) {
       buildPath(`/v1/apps/${appId}/appStoreVersions`, {
         "filter[platform]": platform,
         "fields[appStoreVersions]":
-          "platform,versionString,appVersionState,releaseType,earliestReleaseDate,copyright,appStoreVersionLocalizations",
+          "platform,versionString,appVersionState,releaseType,earliestReleaseDate,copyright,createdDate,appStoreVersionLocalizations",
         "fields[appStoreVersionLocalizations]":
           "locale,description,keywords,marketingUrl,promotionalText,supportUrl,whatsNew",
         include: "appStoreVersionLocalizations",
-        limit: 5,
-        sort: "-createdDate",
+        limit: 50,
       }),
     ),
   ]);
 
-  const latestVersion = versions.body?.data?.[0]?.attributes ?? null;
+  // /v1/apps/{id}/appStoreVersions rejects a sort parameter, so order locally.
+  const orderedVersions = [...(versions.body?.data ?? [])].sort((left, right) => {
+    const leftDate = Date.parse(left.attributes?.createdDate ?? "");
+    const rightDate = Date.parse(right.attributes?.createdDate ?? "");
+    if (Number.isNaN(leftDate) && Number.isNaN(rightDate)) return 0;
+    if (Number.isNaN(leftDate)) return 1;
+    if (Number.isNaN(rightDate)) return -1;
+    return rightDate - leftDate;
+  });
+  const latestVersion = orderedVersions[0]?.attributes ?? null;
   const storeLocalizations = firstLocalizationList(
     versions.body,
     "appStoreVersionLocalizations",

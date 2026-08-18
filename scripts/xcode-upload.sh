@@ -306,7 +306,7 @@ if [[ -z "$xcode_major" || "$xcode_major" -lt 26 ]]; then
   echo "Xcode 26 or newer is required by Apple's 2026 upload requirements." >&2
   exit 2
 fi
-sdk_version=$("${xcode_environment[@]}" "$xcodebuild_tool_path" -version -sdk "$sdk_name" ProductVersion)
+sdk_version=$("${xcode_environment[@]}" "$xcodebuild_tool_path" -version -sdk "$sdk_name" SDKVersion)
 sdk_build_version=$("${xcode_environment[@]}" "$xcodebuild_tool_path" -version -sdk "$sdk_name" ProductBuildVersion)
 sdk_major=${sdk_version%%.*}
 if [[ -z "$sdk_major" || "$sdk_major" -lt 26 ]]; then
@@ -495,7 +495,7 @@ verify_toolchain_unchanged() {
   current_version=$("${xcode_environment[@]}" "$current_path" -version)
   current_build=$(sed -nE 's/^Build version (.+)$/\1/p' <<<"$current_version" | head -n 1)
   current_product_version=$(sed -nE 's/^Xcode ([0-9]+(\.[0-9]+){1,2}).*/\1/p' <<<"$current_version" | head -n 1)
-  current_sdk=$("${xcode_environment[@]}" "$current_path" -version -sdk "$sdk_name" ProductVersion)
+  current_sdk=$("${xcode_environment[@]}" "$current_path" -version -sdk "$sdk_name" SDKVersion)
   current_sdk_build=$("${xcode_environment[@]}" "$current_path" -version -sdk "$sdk_name" ProductBuildVersion)
   current_policy=$(node "$script_dir/toolchain-policy.mjs" inspect \
     --policy "$toolchain_policy" --xcode-build "$current_build" \
@@ -521,11 +521,25 @@ if [[ "$action" == "archive" ]]; then
     exit 2
   fi
   canonical_source_root_pre=$(cd -- "$source_root" && pwd -P)
+  # .p8 and .p12 are key container formats and are always refused. A .pem may be
+  # a public CA bundle -- CocoaPods ships one in gRPC-C++ -- so refuse it only
+  # when it actually carries private-key material.
   source_private_key_file=$(find "$canonical_source_root_pre" \
     \( -type f -o -type l \) \
-    \( -iname '*.p8' -o -iname '*.pem' -o -iname '*.p12' \) -print -quit)
+    \( -iname '*.p8' -o -iname '*.p12' \) -print -quit)
+  if [[ -z "$source_private_key_file" ]]; then
+    while IFS= read -r candidate_pem; do
+      [[ -n "$candidate_pem" ]] || continue
+      if LC_ALL=C grep -lI -- '-----BEGIN[A-Z ]*PRIVATE KEY-----' "$candidate_pem" >/dev/null 2>&1; then
+        source_private_key_file="$candidate_pem"
+        break
+      fi
+    done < <(find "$canonical_source_root_pre" \
+      \( -type f -o -type l \) -iname '*.pem' -print)
+  fi
   if [[ -n "$source_private_key_file" ]]; then
     echo "Source root contains a private-key file; move it outside every --source-root before archiving." >&2
+    echo "Offending path: $source_private_key_file" >&2
     exit 2
   fi
   standard_key_directory=$(node -e '
