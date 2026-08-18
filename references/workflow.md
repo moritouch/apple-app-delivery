@@ -33,6 +33,28 @@ stop after `external-beta`, and that upload or distribution does not authorize
 App Review or production release. The current `TESTFLIGHT_INTERNAL_EXTERNAL`
 entry is beta-only.
 
+## 0. Provision, once per app
+
+Before any release work, confirm the Apple-side identifiers exist. All three commands
+below are safe to repeat; the two mutations refuse to duplicate what is already there.
+
+```bash
+node scripts/asc-release.mjs app-record-guide --bundle-id com.example.app
+node scripts/asc-release.mjs provision-bundle-id \
+  --bundle-id com.example.app --name 'Example App'
+node scripts/asc-release.mjs provision-capability \
+  --bundle-id com.example.app --capability APPLE_ID_AUTH
+```
+
+`provision-bundle-id` uses `CREATE_BUNDLE_ID` and `provision-capability` uses
+`ENABLE_CAPABILITY`; both are dry runs until the phrase and that dry run's
+`planSha256` are supplied. Enabling a capability can invalidate existing
+provisioning profiles.
+
+The App Store Connect app record cannot be created through the API. When
+`app-record-guide` reports `appRecordExists: false`, give its walkthrough to the
+operator and stop until they confirm the record exists, then re-run the command.
+
 ## 1. Plan and preflight
 
 Copy `assets/release-manifest.example.json` outside the skill folder, fill it

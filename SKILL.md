@@ -204,25 +204,39 @@ version, build number, Apple resource ID, target group or version, release type,
 run and obtain approval again. Never substitute a whole-manifest hash for a per-operation
 hash.
 
-| Gate | Required explicit approval | Default |
+| Gate | Command | Required explicit approval |
 |---|---|---|
-| Register a bundle ID | `CREATE_BUNDLE_ID` | dry run |
-| Enable a bundle ID capability | `ENABLE_CAPABILITY` | dry run |
-| Create archive for APP_STORE | `CREATE_ARCHIVE` | dry run, no upload yet |
-| Create stable internal-only TestFlight archive | `CREATE_TESTFLIGHT_ARCHIVE` | dry run, App Store not allowed |
-| Create beta TestFlight-only archive | `CREATE_TESTFLIGHT_PRERELEASE_ARCHIVE` | dry run, App Store not allowed |
-| Upload archive for APP_STORE | `UPLOAD_ARCHIVE` | dry run with archive digest |
-| Upload stable internal-only TestFlight archive | `UPLOAD_TESTFLIGHT_ARCHIVE` | dry run with archive digest |
-| Upload beta TestFlight-only archive | `UPLOAD_TESTFLIGHT_PRERELEASE_ARCHIVE` | dry run with archive digest |
-| Update Xcode provisioning | `ALLOW_PROVISIONING_UPDATES` | explicit, separate from upload approval |
-| Upload IPA/PKG for APP_STORE | `UPLOAD_BUILD` | dry run with artifact digest |
-| Upload beta external TestFlight-only IPA/PKG | `UPLOAD_TESTFLIGHT_PRERELEASE_BUILD` | dry run with artifact digest |
-| Add to a TestFlight group | `ADD_TO_BETA_GROUP` | dry run, no notification |
-| External Beta Review | `SUBMIT_BETA_REVIEW` | not executed |
-| App Store screenshots | `UPLOAD_SCREENSHOTS` | dry run |
-| Submit for App Review | `SUBMIT_APP_REVIEW` | draft only |
-| Release to production | `RELEASE_TO_APP_STORE` | `MANUAL`, not executed |
-| Scheduled, automatic, or phased release | the phrase the script prints | not executed |
+| Register a bundle ID | `provision-bundle-id` | `CREATE_BUNDLE_ID` |
+| Enable a bundle ID capability | `provision-capability` | `ENABLE_CAPABILITY` |
+| Create archive for APP_STORE | `xcode-upload.sh archive` | `CREATE_ARCHIVE` |
+| Create stable internal-only TestFlight archive | `xcode-upload.sh archive` | `CREATE_TESTFLIGHT_ARCHIVE` |
+| Create beta TestFlight-only archive | `xcode-upload.sh archive` | `CREATE_TESTFLIGHT_PRERELEASE_ARCHIVE` |
+| Upload archive for APP_STORE | `xcode-upload.sh upload` | `UPLOAD_ARCHIVE` |
+| Upload stable internal-only TestFlight archive | `xcode-upload.sh upload` | `UPLOAD_TESTFLIGHT_ARCHIVE` |
+| Upload beta TestFlight-only archive | `xcode-upload.sh upload` | `UPLOAD_TESTFLIGHT_PRERELEASE_ARCHIVE` |
+| Update Xcode provisioning | `xcode-upload.sh upload` | `ALLOW_PROVISIONING_UPDATES` |
+| Upload IPA/PKG for APP_STORE | `altool-upload.sh` | `UPLOAD_BUILD` |
+| Upload beta external TestFlight-only IPA/PKG | `altool-upload.sh` | `UPLOAD_TESTFLIGHT_PRERELEASE_BUILD` |
+| Declare export compliance on a build | `set-build-encryption` | `SET_EXPORT_COMPLIANCE` |
+| Set TestFlight localizations | `create/update-beta-build-localization`, `create/update-beta-app-localization` | `SET_BETA_METADATA` |
+| Set the external Beta Review contact and notes | `update-beta-review-detail` | `SET_BETA_REVIEW_DETAILS` |
+| Change tester notification | `set-beta-auto-notify` | `SET_TESTER_NOTIFICATION` |
+| Add to a TestFlight group | `add-beta-group` | `ADD_TO_BETA_GROUP` |
+| Submit for external Beta Review | `submit-beta-review` | `SUBMIT_BETA_REVIEW` |
+| Create an App Store version | `create-version` | `CREATE_APP_STORE_VERSION` |
+| Set App Store metadata or copyright | `create/update-app-store-localization`, `set-version-copyright` | `SET_APP_STORE_METADATA` |
+| Upload screenshots | `asc-screenshots.mjs upload` | `UPLOAD_SCREENSHOTS` |
+| Attach a build to a version | `attach-build` | `ATTACH_BUILD` |
+| Set App Review contact, demo access, notes | `create/update-app-review-detail` | `SET_APP_REVIEW_DETAILS` |
+| Create a review submission draft | `create-review-submission` | `CREATE_REVIEW_DRAFT` |
+| Add a version to a review submission | `add-review-item` | `ADD_REVIEW_ITEM` |
+| Submit for App Review | `submit-review-submission` | `SUBMIT_APP_REVIEW` |
+| Set the release policy | `set-release-policy` | `SET_RELEASE_POLICY` |
+| Configure phased release | `create/update-phased-release` | `CONFIGURE_PHASED_RELEASE` |
+| Manual App Store release | `release-version` | `RELEASE_TO_APP_STORE` |
+
+Every one of these is a dry run until the exact phrase and that dry run's
+`planSha256` are supplied.
 
 Add `--execute --confirm PHRASE --plan-sha256 HASH` only after explicit approval in the
 conversation. Never carry an earlier stage's approval or hash forward to a later stage. If

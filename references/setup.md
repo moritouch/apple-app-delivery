@@ -37,7 +37,14 @@ execution. See [Claude Code skills](https://code.claude.com/docs/en/slash-comman
 
 - Enroll the organization in the Apple Developer Program.
 - Create the initial app record in App Store Connect. The API does not expose
-  `POST /v1/apps`, so do this once in App Store Connect or Xcode.
+  `POST /v1/apps`, so this one step is done by hand in the web interface. Run
+  `asc-release.mjs app-record-guide --bundle-id ID` first: it reports whether the
+  record already exists and, when it does not, prints the URL, the required role,
+  the prerequisites, every field to fill with the values already resolved, and the
+  fields that can never be changed afterwards.
+- Register the bundle ID and its capabilities with
+  `asc-release.mjs provision-bundle-id` and `asc-release.mjs provision-capability`,
+  or in the Developer Portal. Sign In with Apple is `APPLE_ID_AUTH` in the API.
 - Have the Account Holder request App Store Connect API access if it is not
   already enabled.
 - Have an Account Holder or Admin generate a **team API key**. Team keys apply

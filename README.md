@@ -41,6 +41,9 @@ Codex-specific API. Claude Code also supports Agent Skills and user-scope symlin
 
 ## What it does
 
+- Register a bundle ID and enable its capabilities, including Sign In with Apple
+- Report whether an App Store Connect app record exists, and walk you through creating the
+  one thing the API cannot create
 - Create an archive from an Xcode project/workspace and, under a separate approval, upload
   it to App Store Connect
 - Inspect, validate, and upload an existing signed IPA/PKG
@@ -51,9 +54,10 @@ Codex-specific API. Claude Code also supports Agent Skills and user-scope symlin
 - Release manually after approval, or use automatic, scheduled, and phased release when
   explicitly requested
 
-It does not decide anything that requires human judgment, including initial app record
-creation, contracts, tax and banking, privacy, age rating, content rights, and encryption
-legal determinations.
+It does not decide anything that requires human judgment: contracts, tax and banking,
+privacy, age rating, content rights, and encryption legal determinations. Creating the app
+record is a separate case. It is not withheld on purpose, the App Store Connect API simply
+has no endpoint for it, so the skill guides you through that one step instead.
 
 ## What using it looks like
 
@@ -609,22 +613,36 @@ identity and acceptance conditions.
 Mutations are dry runs by default. Execution requires both the exact confirmation phrase
 and the `planSha256` that the dry run displayed.
 
-| Stage | Confirmation phrase |
-|---|---|
-| Create archive for APP_STORE | `CREATE_ARCHIVE` |
-| Create stable internal-only TestFlight archive | `CREATE_TESTFLIGHT_ARCHIVE` |
-| Create beta TestFlight-only archive | `CREATE_TESTFLIGHT_PRERELEASE_ARCHIVE` |
-| Upload archive for APP_STORE | `UPLOAD_ARCHIVE` |
-| Upload stable internal-only TestFlight archive | `UPLOAD_TESTFLIGHT_ARCHIVE` |
-| Upload beta TestFlight-only archive | `UPLOAD_TESTFLIGHT_PRERELEASE_ARCHIVE` |
-| Update Xcode provisioning | `ALLOW_PROVISIONING_UPDATES` |
-| Upload IPA/PKG for APP_STORE | `UPLOAD_BUILD` |
-| Upload beta external TestFlight-only IPA/PKG | `UPLOAD_TESTFLIGHT_PRERELEASE_BUILD` |
-| Add to a TestFlight group | `ADD_TO_BETA_GROUP` |
-| Submit for external Beta Review | `SUBMIT_BETA_REVIEW` |
-| Upload screenshots | `UPLOAD_SCREENSHOTS` |
-| Submit for App Review | `SUBMIT_APP_REVIEW` |
-| Manual App Store release | `RELEASE_TO_APP_STORE` |
+| Stage | Command | Confirmation phrase |
+|---|---|---|
+| Register a bundle ID | `provision-bundle-id` | `CREATE_BUNDLE_ID` |
+| Enable a bundle ID capability | `provision-capability` | `ENABLE_CAPABILITY` |
+| Create archive for APP_STORE | `xcode-upload.sh archive` | `CREATE_ARCHIVE` |
+| Create stable internal-only TestFlight archive | `xcode-upload.sh archive` | `CREATE_TESTFLIGHT_ARCHIVE` |
+| Create beta TestFlight-only archive | `xcode-upload.sh archive` | `CREATE_TESTFLIGHT_PRERELEASE_ARCHIVE` |
+| Upload archive for APP_STORE | `xcode-upload.sh upload` | `UPLOAD_ARCHIVE` |
+| Upload stable internal-only TestFlight archive | `xcode-upload.sh upload` | `UPLOAD_TESTFLIGHT_ARCHIVE` |
+| Upload beta TestFlight-only archive | `xcode-upload.sh upload` | `UPLOAD_TESTFLIGHT_PRERELEASE_ARCHIVE` |
+| Update Xcode provisioning | `xcode-upload.sh upload` | `ALLOW_PROVISIONING_UPDATES` |
+| Upload IPA/PKG for APP_STORE | `altool-upload.sh` | `UPLOAD_BUILD` |
+| Upload beta external TestFlight-only IPA/PKG | `altool-upload.sh` | `UPLOAD_TESTFLIGHT_PRERELEASE_BUILD` |
+| Declare export compliance on a build | `set-build-encryption` | `SET_EXPORT_COMPLIANCE` |
+| Set TestFlight localizations | `create/update-beta-build-localization`, `create/update-beta-app-localization` | `SET_BETA_METADATA` |
+| Set the external Beta Review contact and notes | `update-beta-review-detail` | `SET_BETA_REVIEW_DETAILS` |
+| Change tester notification | `set-beta-auto-notify` | `SET_TESTER_NOTIFICATION` |
+| Add to a TestFlight group | `add-beta-group` | `ADD_TO_BETA_GROUP` |
+| Submit for external Beta Review | `submit-beta-review` | `SUBMIT_BETA_REVIEW` |
+| Create an App Store version | `create-version` | `CREATE_APP_STORE_VERSION` |
+| Set App Store metadata or copyright | `create/update-app-store-localization`, `set-version-copyright` | `SET_APP_STORE_METADATA` |
+| Upload screenshots | `asc-screenshots.mjs upload` | `UPLOAD_SCREENSHOTS` |
+| Attach a build to a version | `attach-build` | `ATTACH_BUILD` |
+| Set App Review contact, demo access, notes | `create/update-app-review-detail` | `SET_APP_REVIEW_DETAILS` |
+| Create a review submission draft | `create-review-submission` | `CREATE_REVIEW_DRAFT` |
+| Add a version to a review submission | `add-review-item` | `ADD_REVIEW_ITEM` |
+| Submit for App Review | `submit-review-submission` | `SUBMIT_APP_REVIEW` |
+| Set the release policy | `set-release-policy` | `SET_RELEASE_POLICY` |
+| Configure phased release | `create/update-phased-release` | `CONFIGURE_PHASED_RELEASE` |
+| Manual App Store release | `release-version` | `RELEASE_TO_APP_STORE` |
 
 The common form is as follows.
 
