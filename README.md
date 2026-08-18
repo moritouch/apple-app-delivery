@@ -55,6 +55,40 @@ It does not decide anything that requires human judgment, including initial app 
 creation, contracts, tax and banking, privacy, age rating, content rights, and encryption
 legal determinations.
 
+## What using it looks like
+
+You do not write the release manifest by hand. After the one-time setup below, invoke the
+skill and answer questions; the agent measures the machine, reads live state from App Store
+Connect, drafts the manifest, and shows it to you before anything runs.
+
+**One time, by you:** install the skill (symlink), create the App Store Connect API key,
+place the `.p8`, and set `ASC_KEY_ID` and `ASC_ISSUER_ID`. These are the only steps this
+document asks you to perform manually.
+
+**Every release, in conversation:**
+
+1. You invoke the skill. It checks prerequisites first (Node, Xcode, credentials, a JWT
+   self-test) and stops with a pointer into this README if something is missing.
+2. It asks whether a release is already in progress. If you give it an existing manifest,
+   it validates each phase to work out where you left off and re-checks that against live
+   state.
+3. On a first run it asks only three things: the bundle ID, the distribution scope, and
+   where this release should stop.
+4. It derives the rest. App resource ID and beta groups come from the API. Xcode version,
+   exact build ID, and SDK versions come from measuring the selected Xcode and matching the
+   toolchain policy. Existing metadata comes from the previous version when there is one.
+5. It shows you the drafted manifest, says which values were derived and from where, and
+   asks only for what a person genuinely has to decide: versions, build source, screenshot
+   directories, review contact, and the seven compliance confirmations.
+6. Every mutation is a dry run first. You approve with an exact phrase and the hash that
+   dry run printed, one stage at a time.
+
+Values such as `expectedSdkBuild` and `policyEntryId` are never asked of you. If the agent
+asks for one, it is not following `SKILL.md`.
+
+Nothing in this flow writes to Apple until you approve a specific stage, and approvals are
+never reused across stages.
+
 ## Requirements
 
 - macOS

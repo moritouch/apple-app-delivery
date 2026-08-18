@@ -8,7 +8,112 @@ description: Upload builds, distribute on TestFlight, manage metadata, submit fo
 This changes production data at Apple. Read and plan first, and treat upload, external
 Beta Review, App Review submission, and public release as separate approval gates.
 
+## Session start
+
+Do this before reading anything else. It decides whether this is a first run or a resumed
+release, and it prevents asking the operator for values that can be derived.
+
+### 1. Verify prerequisites
+
+```bash
+node --version
+xcodebuild -version
+node <skill-dir>/scripts/credential-check.mjs identity
+node <skill-dir>/scripts/asc-api.mjs self-test
+```
+
+`credential-check.mjs identity` reports the resolved Key ID, Issuer ID, and key path
+without printing key material. If it fails, setup is incomplete: name the missing piece,
+point at the matching section of `README.md`, and stop. Never ask the operator to paste
+key contents, and never create, move, or chmod a key on their behalf.
+
+Once identity resolves, confirm the key file and basic API access.
+
+```bash
+node <skill-dir>/scripts/credential-check.mjs validate
+node <skill-dir>/scripts/asc-api.mjs request GET \
+  '/v1/apps?limit=1&fields%5Bapps%5D=name%2CbundleId'
+```
+
+### 2. Determine whether a release is already in progress
+
+Ask whether a release manifest already exists, and for its absolute path. This skill keeps
+no state of its own: the manifest and the provenance receipt are the state.
+
+When a manifest exists, read it and run the validator for each phase in order. Treat the
+first failing phase as the current position, then confirm that position against live state
+with `asc-release.mjs status` before proposing anything. Never infer the phase from the
+conversation alone.
+
+When `build.provenancePath` is set, read that receipt before any other action.
+
+```bash
+node <skill-dir>/scripts/upload-provenance.mjs read \
+  --file /absolute/path/upload-provenance.json
+```
+
+A receipt with `uploadCompleted=false` means an earlier upload stopped after reserving. Go
+to `references/failure-runbook.md` and do not upload again.
+
+### 3. On a first run, ask only these three things
+
+- The bundle ID
+- The distribution scope, stated as the maximum reach: `APP_STORE`,
+  `TESTFLIGHT_INTERNAL_ONLY`, or `TESTFLIGHT_INTERNAL_EXTERNAL`
+- Where this release should stop: internal TestFlight, external TestFlight, App Review, or
+  production release
+
+Then derive everything in the table below and present a draft manifest for confirmation.
+Ask for the remaining human-only values when the phase that needs them is reached, not up
+front.
+
+## Derive, do not ask
+
+Never ask the operator for a value in this table. They generally cannot answer it, and a
+guessed value fails closed later.
+
+| Manifest field | Derive from |
+|---|---|
+| `app.appId` | `asc-release.mjs status --bundle-id ID` |
+| `app.teamId` | `xcodebuild -showBuildSettings` `DEVELOPMENT_TEAM` when a source root is given; otherwise confirm with the operator |
+| `toolchain.expectedXcodeProductVersion`, `toolchain.expectedXcodeBuild` | `xcodebuild -version` under the chosen `DEVELOPER_DIR` |
+| `toolchain.expectedSdkVersion` | `xcodebuild -version -sdk <platform sdk> ProductVersion` |
+| `toolchain.expectedSdkBuild` | `xcodebuild -version -sdk <platform sdk> ProductBuildVersion` |
+| `toolchain.expectedPlatformBuild` | the policy entry's `storeBuildMetadata[platform].platformBuild`. `xcodebuild` does not report it, and the archive's `DTPlatformBuild` is verified against it after the build |
+| `toolchain.channel`, `toolchain.policyEntryId` | `toolchain-policy.mjs inspect` output `entry.channel` and `entry.id` |
+| `testFlight.groupIds` | `status` `betaGroups` |
+| `testFlight.localizations`, `appStore.localizations` | `status`, when a prior version exists |
+| `appStore.copyright`, `appStore.releaseType`, `appStore.phasedRelease` | `status`, from the existing version |
+| `build.appStoreConnectBuildId` | `asc-release.mjs wait-build`, after upload |
+| `build.provenancePath` | the `--provenance-output` path chosen for that upload |
+
+Derive the toolchain values by measuring the machine, then pass them through
+`toolchain-policy.mjs inspect` and use its result. Never copy the example values in
+`README.md` or the policy file into a manifest without measuring, and stop fail-closed on
+any mismatch rather than adjusting the manifest to match the machine.
+
+Always ask for these, and never infer them:
+
+- `delivery.distributionScope`, which is the production boundary
+- `build.marketingVersion` and `build.buildNumber`
+- `build.artifactPath`, or the source root, workspace/project, and scheme
+- Local screenshot directories per display type
+- `review.demoAccountRequired` and `review.demoCredentialReference`
+- All seven `compliance` flags, each confirmed individually by a person
+- `review.contact.email` and `review.contact.phone`. `status` redacts these as PII, so
+  they cannot be derived even when they already exist at Apple.
+
+### New app with no prior version
+
+For an app that has never shipped, `status` returns no localizations, no editable version,
+and possibly no beta groups. That is expected, not an error. There is nothing to derive for
+metadata, so collect it from the operator when the App Review phase is reached. If the
+bundle ID does not resolve to an app at all, stop: the API cannot create an app record, and
+the operator must create it in App Store Connect first.
+
 ## Start here
+
+After "Session start", before executing anything:
 
 1. Read `references/setup.md` and `references/workflow.md` end to end.
 2. Also read `references/prerelease-xcode.md` for any Xcode beta or TestFlight-only scope.
@@ -91,26 +196,28 @@ a hash does not match at execution time, identify what changed and present a new
 
 ## Collect inputs
 
-Copy `assets/release-manifest.example.json` into the user's workspace and gather the
-following, excluding secrets.
+Copy `assets/release-manifest.example.json` into the operator's workspace, outside this
+skill folder and outside the app repository, and write it with mode `0600`. Fill it using
+"Derive, do not ask" above: measure or fetch everything derivable, and ask only for the
+human-only values, when the phase that needs them is reached.
 
-- Bundle ID, App Store Connect app ID, platform, Developer Team ID
-- Team API Key ID, Issuer ID, local absolute path to the `.p8`
-- An existing IPA/PKG, or source root, workspace/project, scheme, configuration
-- `APP_STORE` / `TESTFLIGHT_INTERNAL_ONLY` / `TESTFLIGHT_INTERNAL_EXTERNAL`
-- Selected Xcode ProductVersion, exact build ID, SDK ProductVersion, SDK build, platform
-  build, the Xcode build that produced the artifact, the uploader Xcode build, and the
-  developer directory
-- A private upload provenance output path outside the repository
-- Marketing version and a monotonically increasing build number
-- TestFlight internal/external, group IDs, `What to Test`, notification policy
-- External Beta/App Review contact, notes, and a reference to demo secrets
-- Per-locale description, keywords, URLs, What's New, and screenshots per display type
-- Human-confirmed privacy, age rating, content rights, encryption, pricing, and territories
-- `MANUAL` / `AFTER_APPROVAL` / `SCHEDULED`, the date and time, and whether phased release applies
+Present the draft manifest before using it. State which values were derived and from
+where, so the operator can correct a wrong one before it reaches a dry run.
 
-Do not ask for every missing field at once. Ask only for what the current phase needs, and
-never ask for secret contents.
+The full field set the manifest carries, by phase:
+
+| Phase | Fields that must be settled |
+|---|---|
+| `plan` | `app.*`, `delivery.distributionScope`, `toolchain.*`, `build.marketingVersion`, `build.buildNumber`, and either `build.artifactPath` or `build.source` |
+| `upload` | the above, plus `build.appStoreConnectBuildId` and `build.provenancePath` after the upload completes |
+| `internal-beta` | `testFlight.audience`, `testFlight.groupIds`, `testFlight.localizations` `whatsNew` |
+| `external-beta` | the above, plus beta app localization, feedback email, and the external Beta Review contact and notes |
+| `app-review` | `appStore.*` per locale, screenshots per display type, `review.*`, and all seven `compliance` flags |
+| `release` | `appStore.releaseType`, `earliestReleaseDate`, and `phasedRelease` |
+
+Never ask for secret contents. The `.p8` is referenced only through `ASC_KEY_ID` and
+`ASC_PRIVATE_KEY_PATH`, and demo account passwords are referenced only through
+`review.demoCredentialReference`, never stored in the manifest.
 
 ## Plan and preflight
 
