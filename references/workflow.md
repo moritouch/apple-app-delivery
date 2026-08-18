@@ -287,8 +287,18 @@ node scripts/asc-release.mjs add-beta-group \
 
 For external testing, use `create-beta-app-localization` or
 `update-beta-app-localization`, then `update-beta-review-detail`. The
-`--attributes-file` input is a plain attributes object; see the JSON examples
-under `assets/`. If it contains `demoAccountPassword`, keep it outside the
+`--attributes-file` input is a plain attributes object. Start from the matching
+template:
+
+| Command | Template |
+|---|---|
+| `create-beta-build-localization`, `update-beta-build-localization` | [`assets/beta-build-localization.example.json`](../assets/beta-build-localization.example.json) |
+| `create-beta-app-localization`, `update-beta-app-localization` | [`assets/beta-app-localization.example.json`](../assets/beta-app-localization.example.json) |
+| `update-beta-review-detail`, `create-app-review-detail`, `update-app-review-detail` | [`assets/review-detail.example.json`](../assets/review-detail.example.json) |
+| `create-app-store-localization`, `update-app-store-localization` | [`assets/app-store-localization.example.json`](../assets/app-store-localization.example.json) |
+
+The templates deliberately omit `demoAccountName` and `demoAccountPassword`;
+add them only in a file kept outside the repository. If it contains `demoAccountPassword`, keep it outside the
 repository with mode `0600`. Set tester notification separately with
 `set-beta-auto-notify`; its default policy remains off.
 
