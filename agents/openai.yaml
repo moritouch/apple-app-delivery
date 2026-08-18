@@ -1,0 +1,4 @@
+interface:
+  display_name: "Apple App Delivery"
+  short_description: "Ship Apple apps from TestFlight to App Store release, safely"
+  default_prompt: "Use $apple-app-delivery to upload this Apple app to TestFlight and guide it safely through App Store submission and release."

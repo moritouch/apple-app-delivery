@@ -1,0 +1,7 @@
+{
+  "description": "App Store description text",
+  "keywords": "keyword1,keyword2",
+  "supportUrl": "https://example.com/support",
+  "marketingUrl": "https://example.com",
+  "whatsNew": "What is new in this version"
+}

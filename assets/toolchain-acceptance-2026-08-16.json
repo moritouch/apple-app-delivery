@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 2,
+  "verifiedAt": "2026-08-16",
+  "entries": [
+    {
+      "id": "apple-asc-2026-06-25-xcode-26.6",
+      "xcodeVersion": "Xcode 26.6",
+      "xcodeProductVersion": "26.6",
+      "xcodeBuild": "17F113",
+      "channel": "STABLE",
+      "sdkVersion": "26.5",
+      "distributionScopes": [
+        "APP_STORE",
+        "TESTFLIGHT_INTERNAL_ONLY"
+      ],
+      "storeBuildMetadata": {
+        "IOS": {
+          "sdkBuild": "23F77",
+          "platformBuild": "23F77"
+        },
+        "MAC_OS": {
+          "sdkBuild": "25F71",
+          "platformBuild": "25F71"
+        },
+        "TV_OS": {
+          "sdkBuild": "23L471",
+          "platformBuild": "23L471"
+        },
+        "VISION_OS": {
+          "sdkBuild": "23O471",
+          "platformBuild": "23O471"
+        }
+      },
+      "acceptedAt": "2026-06-25",
+      "verifiedAt": "2026-08-16",
+      "validUntil": "2026-09-16",
+      "officialSourceUrls": [
+        "https://developer.apple.com/help/app-store-connect/release-notes/",
+        "https://developer.apple.com/news/releases/"
+      ]
+    },
+    {
+      "id": "apple-asc-2026-08-11-xcode-27-beta-5",
+      "xcodeVersion": "Xcode 27 beta 5",
+      "xcodeProductVersion": "27.0",
+      "xcodeBuild": "27A5237l",
+      "channel": "BETA",
+      "sdkVersion": "27.0",
+      "distributionScopes": [
+        "TESTFLIGHT_INTERNAL_ONLY",
+        "TESTFLIGHT_INTERNAL_EXTERNAL"
+      ],
+      "storeBuildMetadata": null,
+      "acceptedAt": "2026-08-11",
+      "verifiedAt": "2026-08-16",
+      "validUntil": "2026-08-18",
+      "officialSourceUrls": [
+        "https://developer.apple.com/help/app-store-connect/release-notes/",
+        "https://developer.apple.com/news/releases/"
+      ]
+    }
+  ]
+}

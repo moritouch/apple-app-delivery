@@ -1,0 +1,6 @@
+{
+  "description": "App description shown to external testers",
+  "feedbackEmail": "beta-feedback@example.com",
+  "marketingUrl": "https://example.com",
+  "privacyPolicyUrl": "https://example.com/privacy"
+}

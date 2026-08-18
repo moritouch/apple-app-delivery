@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 2,
+  "app": {
+    "bundleId": "com.example.app",
+    "appId": "1234567890",
+    "platform": "IOS",
+    "teamId": "ABCDE12345"
+  },
+  "delivery": {
+    "distributionScope": "TESTFLIGHT_INTERNAL_EXTERNAL"
+  },
+  "toolchain": {
+    "channel": "BETA",
+    "expectedXcodeProductVersion": "27.0",
+    "expectedXcodeBuild": "27A5237l",
+    "expectedSdkVersion": "27.0",
+    "expectedSdkBuild": null,
+    "expectedPlatformBuild": null,
+    "policyEntryId": "apple-asc-2026-08-11-xcode-27-beta-5"
+  },
+  "build": {
+    "marketingVersion": "1.2.0",
+    "buildNumber": "43",
+    "appStoreConnectBuildId": null,
+    "provenancePath": null,
+    "testFlightInternalTestingOnly": false,
+    "artifactPath": null,
+    "source": {
+      "workspace": "/absolute/path/App.xcworkspace",
+      "project": null,
+      "scheme": "App"
+    }
+  },
+  "testFlight": {
+    "audience": "external",
+    "groupIds": ["BETA_GROUP_ID"],
+    "autoNotifyEnabled": false,
+    "localizations": [
+      {
+        "locale": "en-US",
+        "whatsNew": "What testers should verify in this build",
+        "description": "App description shown to external testers",
+        "feedbackEmail": "beta-feedback@example.com",
+        "marketingUrl": "https://example.com",
+        "privacyPolicyUrl": "https://example.com/privacy"
+      }
+    ]
+  },
+  "appStore": null,
+  "review": {
+    "contact": {
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "review@example.com",
+      "phone": "+1-555-0100"
+    },
+    "demoAccountRequired": false,
+    "demoCredentialReference": null,
+    "notes": "Steps for the external TestFlight reviewer to follow"
+  },
+  "compliance": {
+    "usesNonExemptEncryption": false,
+    "exportComplianceConfirmed": false,
+    "privacyPublished": false,
+    "pricingAndAvailabilityConfirmed": false,
+    "legalAgreementsCurrent": false,
+    "ageRatingConfirmed": false,
+    "contentRightsConfirmed": false
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "contactFirstName": "Jane",
+  "contactLastName": "Doe",
+  "contactPhone": "+1-555-0100",
+  "contactEmail": "review@example.com",
+  "demoAccountRequired": false,
+  "notes": "Steps for the reviewer to follow"
+}

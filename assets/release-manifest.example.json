@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 2,
+  "app": {
+    "bundleId": "com.example.app",
+    "appId": "1234567890",
+    "platform": "IOS",
+    "teamId": "ABCDE12345"
+  },
+  "delivery": {
+    "distributionScope": "APP_STORE"
+  },
+  "toolchain": {
+    "channel": "STABLE",
+    "expectedXcodeProductVersion": "26.6",
+    "expectedXcodeBuild": "17F113",
+    "expectedSdkVersion": "26.5",
+    "expectedSdkBuild": "23F77",
+    "expectedPlatformBuild": "23F77",
+    "policyEntryId": "apple-asc-2026-06-25-xcode-26.6"
+  },
+  "build": {
+    "marketingVersion": "1.2.0",
+    "buildNumber": "42",
+    "appStoreConnectBuildId": null,
+    "provenancePath": null,
+    "testFlightInternalTestingOnly": false,
+    "artifactPath": "/absolute/path/MyApp.ipa",
+    "source": null
+  },
+  "testFlight": {
+    "audience": "internal",
+    "groupIds": [],
+    "autoNotifyEnabled": false,
+    "localizations": [
+      {
+        "locale": "en-US",
+        "whatsNew": "What testers should verify in this build",
+        "description": "App description shown to external testers",
+        "feedbackEmail": "beta-feedback@example.com",
+        "marketingUrl": "https://example.com",
+        "privacyPolicyUrl": "https://example.com/privacy"
+      }
+    ]
+  },
+  "appStore": {
+    "version": "1.2.0",
+    "copyright": "2026 Example Inc.",
+    "releaseType": "MANUAL",
+    "earliestReleaseDate": null,
+    "phasedRelease": false,
+    "localizations": [
+      {
+        "locale": "en-US",
+        "description": "App Store description text",
+        "keywords": "keyword1,keyword2",
+        "supportUrl": "https://example.com/support",
+        "marketingUrl": "https://example.com",
+        "whatsNew": "What is new in this version",
+        "screenshotSets": [
+          {
+            "displayType": "APP_IPHONE_67",
+            "directory": "/absolute/path/screenshots/en-US/APP_IPHONE_67"
+          }
+        ],
+        "screenshotsAlreadyUploaded": false
+      }
+    ]
+  },
+  "review": {
+    "contact": {
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "review@example.com",
+      "phone": "+1-555-0100"
+    },
+    "demoAccountRequired": false,
+    "demoCredentialReference": null,
+    "notes": "Steps for the reviewer to follow"
+  },
+  "compliance": {
+    "usesNonExemptEncryption": false,
+    "exportComplianceConfirmed": false,
+    "privacyPublished": false,
+    "pricingAndAvailabilityConfirmed": false,
+    "legalAgreementsCurrent": false,
+    "ageRatingConfirmed": false,
+    "contentRightsConfirmed": false
+  }
+}
