@@ -55,6 +55,24 @@ The App Store Connect app record cannot be created through the API. When
 `app-record-guide` reports `appRecordExists: false`, give its walkthrough to the
 operator and stop until they confirm the record exists, then re-run the command.
 
+`app-record-guide` also reports a `signing` block: the provisioning profiles on
+the bundle ID, the account's distribution certificates, and the code-signing
+identities in this Mac's Keychain. A registered bundle ID with capabilities
+still cannot be built until a distribution certificate and an ACTIVE
+`*_APP_STORE` profile exist, and until the certificate's private key is in the
+local Keychain. Nothing in this skill creates them: `xcode-upload.sh archive`
+runs with the App Store Connect key blocked and passes no
+`-allowProvisioningUpdates`, so a first archive on a fresh bundle ID fails to
+sign.
+
+When `signing.signingAssetsReady` is false, hand `signing.firstBuildGuide` to
+the operator and stop. They create the assets once, with Xcode's automatic
+signing or by running `xcodebuild -allowProvisioningUpdates` themselves in the
+app repository, then you re-run the command. Xcode is the normal route because
+it also puts the private key in the Keychain, which the API cannot do. Enabling
+a capability later can invalidate the profile, and it is regenerated the same
+way.
+
 ## 1. Plan and preflight
 
 Copy `assets/release-manifest.example.json` outside the skill folder, fill it
@@ -291,6 +309,39 @@ decide the encryption answers. Update a build with `PATCH /v1/builds/{id}` or
 use `set-build-encryption` after approval. Attach an approved encryption
 declaration when required.
 
+When the app has no beta group yet, create one and invite its testers first.
+Both commands are gated and refuse duplicates.
+
+```bash
+node scripts/asc-release.mjs create-beta-group \
+  --bundle-id com.example.app --app-id APP_ID \
+  --name 'Internal Testers' --internal true
+
+node scripts/asc-release.mjs add-beta-tester \
+  --bundle-id com.example.app --group-id GROUP_ID \
+  --email tester@example.com [--first-name Ada] [--last-name Lovelace]
+```
+
+`--internal` is required and states the audience. An internal group accepts only
+App Store Connect users on this team who hold a role allowing internal testing
+and who can see the app; `add-beta-tester` checks all three before it will
+execute, and reports `internalTesterCheck.checked: false` when the key cannot
+read the user list, in which case a person must confirm team membership. An
+external group reaches people outside the team, and Apple emails them once an
+approved build exists.
+
+`add-beta-tester` links an address that is already a tester in the account
+instead of creating a second one, and refuses an address already in the target
+group. Group `--name` must not collide with an existing group for the app.
+Public-link options are refused: a public link admits anyone with the URL, so it
+belongs in App Store Connect as a separate decision. `--has-access-to-all-builds
+true` is internal-only, off by default, and hands the group every future build
+with no per-build approval.
+
+The dry run prints the address only as a mask such as `t****r@example.com`.
+The plan hash still covers the exact address, so approving the hash approves
+exactly one person. Read the mask back to the operator before approving.
+
 Create or update tester-facing text with `betaBuildLocalizations`, confirm the
 target beta group, then preview and attach the build:
 
@@ -322,6 +373,22 @@ The templates deliberately omit `demoAccountName` and `demoAccountPassword`;
 add them only in a file kept outside the repository. If it contains `demoAccountPassword`, keep it outside the
 repository with mode `0600`. Set tester notification separately with
 `set-beta-auto-notify`; its default policy remains off.
+
+```bash
+node scripts/asc-release.mjs set-beta-auto-notify \
+  --bundle-id com.example.app \
+  --build-beta-detail-id BUILD_BETA_DETAIL_ID --enabled false
+```
+
+That is the buildBetaDetail ID, not the build ID. `wait-build` reports it as
+`resolved.buildBetaDetailId` alongside `resolved.buildId`, so there is no need
+to query the relationship by hand. `add-beta-group` refuses to run until
+auto-notify has been decided explicitly for the build.
+
+Skip `add-beta-group` entirely for a group with `hasAccessToAllBuilds`. Apple
+distributes every build to such a group automatically and rejects an explicit
+link, so both the dry run and the execution stop with that explanation instead
+of failing at Apple.
 
 Internal testing does not require Beta App Review. External testing requires:
 

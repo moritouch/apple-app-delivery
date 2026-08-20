@@ -42,12 +42,13 @@ Codex-specific API. Claude Code also supports Agent Skills and user-scope symlin
 ## What it does
 
 - Register a bundle ID and enable its capabilities, including Sign In with Apple
-- Report whether an App Store Connect app record exists, and walk you through creating the
-  one thing the API cannot create
+- Report whether an App Store Connect app record exists, whether the bundle ID can be
+  signed yet, and walk you through the two things the API cannot create
 - Create an archive from an Xcode project/workspace and, under a separate approval, upload
   it to App Store Connect
 - Inspect, validate, and upload an existing signed IPA/PKG
-- Wait for build processing to finish and add builds to TestFlight internal/external groups
+- Wait for build processing to finish, create TestFlight groups, invite testers, and add
+  builds to internal/external groups
 - Configure Beta App Review text, contacts, notification policy, and export compliance
 - Set the App Store version, per-locale metadata, screenshots, and build association
 - Create a review submission, snapshot its contents, and submit for App Review
@@ -57,7 +58,9 @@ Codex-specific API. Claude Code also supports Agent Skills and user-scope symlin
 It does not decide anything that requires human judgment: contracts, tax and banking,
 privacy, age rating, content rights, and encryption legal determinations. Creating the app
 record is a separate case. It is not withheld on purpose, the App Store Connect API simply
-has no endpoint for it, so the skill guides you through that one step instead.
+has no endpoint for it, so the skill guides you through that step instead. The same is true
+of the signing assets a brand new bundle ID needs: the skill reports exactly what is
+missing and hands you the shortest way to create it.
 
 ## What using it looks like
 
@@ -96,7 +99,7 @@ asks for one, it is not following `SKILL.md`.
 Nothing in this flow writes to Apple until you approve a specific stage, and approvals are
 never reused across stages.
 
-## Provisioning, and the one step you have to do yourself
+## Provisioning, and the steps you have to do yourself
 
 Almost all of the Apple-side setup is automated behind approval gates.
 
@@ -116,12 +119,27 @@ node "$asc_skill_dir/scripts/asc-release.mjs" provision-capability \
 
 Sign In with Apple is `APPLE_ID_AUTH` in the API even though the portal calls it something
 else, and the command accepts either spelling. Without a `--settings-file` it is enabled as
-a primary App ID. Certificates, devices, and provisioning profiles also have APIs, and
-Xcode creates what it needs during upload under the separate `ALLOW_PROVISIONING_UPDATES`
-approval.
+a primary App ID.
+
+TestFlight groups and testers are automated the same way, with `create-beta-group`
+(`CREATE_BETA_GROUP`) and `add-beta-tester` (`ADD_BETA_TESTER`). `--internal true|false` is
+required rather than defaulted, an internal group is checked against the team's App Store
+Connect users, and a tester address appears in the dry run only as a mask while the
+approval hash still covers the exact address.
+
+**Signing assets are the other thing you may have to do once.** A registered bundle ID is
+not enough to build: a distribution certificate and an App Store provisioning profile must
+exist, and the certificate's private key must be in your Keychain. `app-record-guide`
+reports all of that under `signing`, including the local identities, which no API can see.
+Archive creation deliberately never creates any of it — it runs with the App Store Connect
+key blocked and without `-allowProvisioningUpdates` — so on a brand new bundle ID you
+create the assets once through Xcode's automatic signing, or by running
+`xcodebuild -allowProvisioningUpdates` yourself, and then the gated flow continues. During
+upload, Xcode may still update provisioning assets under the separate
+`ALLOW_PROVISIONING_UPDATES` approval.
 
 **The App Store Connect app record is the exception.** The API has no endpoint that creates
-one, so exactly one step in the whole flow has to be done by hand, in the web interface.
+one, so that step is always done by hand, in the web interface.
 `app-record-guide` makes that step as short as possible: it checks whether the record
 exists, and when it does not it prints the URL, the required role, the prerequisites, every
 field you must fill with the values already resolved, and which fields can never be changed
@@ -630,6 +648,8 @@ and the `planSha256` that the dry run displayed.
 | Set TestFlight localizations | `create/update-beta-build-localization`, `create/update-beta-app-localization` | `SET_BETA_METADATA` |
 | Set the external Beta Review contact and notes | `update-beta-review-detail` | `SET_BETA_REVIEW_DETAILS` |
 | Change tester notification | `set-beta-auto-notify` | `SET_TESTER_NOTIFICATION` |
+| Create a TestFlight group | `create-beta-group` | `CREATE_BETA_GROUP` |
+| Invite a TestFlight tester | `add-beta-tester` | `ADD_BETA_TESTER` |
 | Add to a TestFlight group | `add-beta-group` | `ADD_TO_BETA_GROUP` |
 | Submit for external Beta Review | `submit-beta-review` | `SUBMIT_BETA_REVIEW` |
 | Create an App Store version | `create-version` | `CREATE_APP_STORE_VERSION` |

@@ -62,14 +62,18 @@ node <skill-dir>/scripts/asc-release.mjs app-record-guide --bundle-id com.exampl
 ```
 
 This is read-only. It reports whether the bundle ID is registered, which capabilities it
-carries, and whether an App Store Connect app record exists. When the record is missing it
-returns a filled-in walkthrough. Hand that walkthrough to the operator as instructions,
+carries, whether an App Store Connect app record exists, and whether the signing assets a
+first build needs are in place. When the record is missing it returns a filled-in
+walkthrough. Hand that walkthrough to the operator as instructions,
 including the values they must type and the fields they can never change afterwards, then
 wait and re-run it rather than guessing that the record appeared.
 
 Never present the missing app record as a skill limitation to work around. The App Store
-Connect API has no endpoint that creates one, so it is a genuine platform boundary and the
-only step in the whole flow that a person must perform by hand.
+Connect API has no endpoint that creates one, so it is a genuine platform boundary. It is
+one of exactly two manual steps: the app record, which is always manual, and the signing
+assets for a bundle ID that has never been built on this machine, described under
+"Provisioning". Everything else in the flow is automated behind a gate, so treat any other
+"do it in the web interface" instinct as a bug in the plan.
 
 ### 4. On a first run, ask only these three things
 
@@ -134,6 +138,8 @@ Always ask for these, and never infer them:
 - All seven `compliance` flags, each confirmed individually by a person
 - `review.contact.email` and `review.contact.phone`. `status` redacts these as PII, so
   they cannot be derived even when they already exist at Apple.
+- Every TestFlight tester address. Never infer one from Git history, a commit author, or
+  the operator's own account. An invitation reaches a real person and cannot be unsent.
 
 ### New app with no prior version
 
@@ -221,6 +227,8 @@ hash.
 | Set TestFlight localizations | `create/update-beta-build-localization`, `create/update-beta-app-localization` | `SET_BETA_METADATA` |
 | Set the external Beta Review contact and notes | `update-beta-review-detail` | `SET_BETA_REVIEW_DETAILS` |
 | Change tester notification | `set-beta-auto-notify` | `SET_TESTER_NOTIFICATION` |
+| Create a TestFlight group | `create-beta-group` | `CREATE_BETA_GROUP` |
+| Invite a TestFlight tester | `add-beta-tester` | `ADD_BETA_TESTER` |
 | Add to a TestFlight group | `add-beta-group` | `ADD_TO_BETA_GROUP` |
 | Submit for external Beta Review | `submit-beta-review` | `SUBMIT_BETA_REVIEW` |
 | Create an App Store version | `create-version` | `CREATE_APP_STORE_VERSION` |
@@ -244,9 +252,9 @@ a hash does not match at execution time, identify what changed and present a new
 
 ## Provisioning
 
-Everything the Developer Portal needs, apart from the app record, can be created through
-gated commands. Use them instead of sending a beginner to the portal to guess at
-capabilities.
+Everything the Developer Portal needs, apart from the app record and the first-build
+signing assets below, can be created through gated commands. Use them instead of sending a
+beginner to the portal to guess at capabilities.
 
 ```bash
 node <skill-dir>/scripts/asc-release.mjs list-bundle-ids --bundle-id com.example.app
@@ -265,6 +273,55 @@ Both commands refuse to duplicate an existing bundle ID or capability, and they 
 live state after approval and before writing. Enabling a capability can invalidate existing
 provisioning profiles, so say that in the approval summary. Provisioning never resolves an
 app record, so it works before one exists.
+
+### The first build on a new bundle ID
+
+Registering the bundle ID and its capabilities is not enough to sign. A distribution
+certificate and an App Store provisioning profile must exist too, and the certificate's
+private key must be in this Mac's Keychain. `xcode-upload.sh archive` deliberately creates
+none of it: it runs with the App Store Connect key blocked and without
+`-allowProvisioningUpdates`, so a first archive on a new bundle ID fails to sign until the
+assets exist.
+
+`app-record-guide` reports this under `signing`. When `signingAssetsReady` is false, hand
+the operator `signing.firstBuildGuide` and stop, exactly as with a missing app record. They
+create the assets once, either through Xcode's automatic signing or by running
+`xcodebuild -allowProvisioningUpdates` themselves, outside this skill. Then re-run the
+command instead of assuming the assets appeared. This is a deliberate boundary, not a
+missing feature: creating signing assets is the one place where Xcode's own account gets
+the private key into the Keychain, which the API cannot do.
+
+### TestFlight groups and testers
+
+Groups and testers are created through gated commands, so a new app does not need manual
+TestFlight setup.
+
+```bash
+node <skill-dir>/scripts/asc-release.mjs create-beta-group \
+  --bundle-id com.example.app --app-id APP_ID \
+  --name 'Internal Testers' --internal true
+node <skill-dir>/scripts/asc-release.mjs add-beta-tester \
+  --bundle-id com.example.app --group-id GROUP_ID --email tester@example.com
+```
+
+`--internal` is required, because internal and external are different audiences, not a
+default. An internal group takes only App Store Connect users on this team, and
+`add-beta-tester` refuses an address that is not one of them, or that holds no role
+allowing internal testing, or that cannot see the app. An external group reaches people
+outside the team and needs Beta App Review before anyone can install.
+
+Public links are refused by `create-beta-group`. A link admits anyone holding the URL, and
+this skill has no gate for that; it belongs in App Store Connect as a separate decision.
+
+Tester addresses are personal data. The dry run prints only a mask such as
+`t****r@example.com`, while the approval hash still covers the exact address, so
+approving a hash still approves exactly one person. Read the mask back to the operator and
+confirm it against what they gave you.
+
+`--has-access-to-all-builds true` makes an internal group receive every future build
+automatically, with no per-build approval. It is off by default, and when it is on
+`add-beta-group` refuses that group: Apple rejects an explicit build link there, and both
+commands say so instead of letting an approved plan fail at Apple.
 
 ## Collect inputs
 
@@ -413,8 +470,13 @@ node <skill-dir>/scripts/asc-release.mjs wait-build \
    but never treat the latter alone as App Store permission.
 2. Set `What to Test` through `betaBuildLocalizations`.
 3. Add to an internal group and include the notification audience in the approval summary.
-   Pass the same upload receipt to `add-beta-group` with `--provenance-file` and verify
-   scope against the live audience. Internal testing does not create a Beta App Review.
+   Create the group with `create-beta-group` and its testers with `add-beta-tester` when
+   the app has none yet. `wait-build` reports `resolved.buildBetaDetailId`, which is the
+   argument `set-beta-auto-notify --build-beta-detail-id ID --enabled false` needs; that
+   command takes the buildBetaDetail ID, never the build ID. Then pass the same upload
+   receipt to `add-beta-group` with `--provenance-file` and verify scope against the live
+   audience. Skip `add-beta-group` for a group with `hasAccessToAllBuilds`, which already
+   has the build. Internal testing does not create a Beta App Review.
 4. For external testing, complete beta app localization, feedback email, review contact,
    and demo access.
 5. Dry run `submit-beta-review` with the same `--provenance-file` and execute after a

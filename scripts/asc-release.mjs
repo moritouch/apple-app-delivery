@@ -155,6 +155,31 @@ function validateUrl(value, label) {
   }
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function emailOption(options, key) {
+  const value = requiredOption(options, key).trim();
+  if (!EMAIL_PATTERN.test(value)) {
+    throw new Error(`--${key} must be a single email address`);
+  }
+  return value;
+}
+
+// A tester address is personal data, so the plan prints only a mask. The plan
+// hash still covers the exact address, so approving that hash still approves
+// exactly one person. The mask is deliberately not carried under a key matching
+// /email/: redactSensitive replaces those values outright, and then the
+// approval summary could not name who is about to be invited at all.
+function maskEmail(email) {
+  const separator = email.lastIndexOf("@");
+  const local = email.slice(0, separator);
+  const domain = email.slice(separator + 1);
+  const head = local.slice(0, 1);
+  const tail = local.length > 2 ? local.slice(-1) : "";
+  const hidden = Math.max(local.length - head.length - tail.length, 1);
+  return `${head}${"*".repeat(hidden)}${tail}@${domain}`;
+}
+
 async function readJsonFile(filePath, label) {
   if (!isAbsolute(filePath)) {
     throw new Error(`${label} must be an absolute path`);
@@ -572,6 +597,144 @@ async function fetchBetaGroupTarget(groupId, appId) {
   if (!group || group.id !== groupId) throw new Error(`Beta group ${groupId} was not returned`);
   assertRelationship(group, "app", appId, `Beta group ${groupId}`);
   return result;
+}
+
+// App Store Connect user roles Apple accepts as internal TestFlight testers. An
+// internal group only ever contains users who are already on the team, so the
+// API cannot invite an outsider into one no matter how the request is phrased.
+const INTERNAL_TESTER_ROLES = new Set([
+  "ACCOUNT_HOLDER",
+  "ADMIN",
+  "APP_MANAGER",
+  "DEVELOPER",
+  "MARKETING",
+]);
+
+async function findBetaGroupByName(appId, name) {
+  const response = await apiRequest(
+    buildPath("/v1/betaGroups", {
+      "filter[app]": appId,
+      "filter[name]": name,
+      "fields[betaGroups]":
+        "name,isInternalGroup,hasAccessToAllBuilds,publicLinkEnabled",
+      limit: 200,
+    }),
+  );
+  return (
+    (responseData(response) ?? []).find(
+      (group) => group.attributes?.name === name,
+    ) ?? null
+  );
+}
+
+async function fetchBetaGroupAudience(groupId) {
+  const result = await apiRequest(
+    buildPath(`/v1/betaGroups/${groupId}`, {
+      "fields[betaGroups]": "name,isInternalGroup,hasAccessToAllBuilds,app",
+      include: "app",
+    }),
+  );
+  const group = responseData(result);
+  if (!group || group.id !== groupId) {
+    throw new Error(`Beta group ${groupId} was not returned`);
+  }
+  return {
+    id: group.id,
+    name: group.attributes?.name ?? null,
+    isInternalGroup: group.attributes?.isInternalGroup === true,
+    hasAccessToAllBuilds: group.attributes?.hasAccessToAllBuilds === true,
+    appId: relationshipId(group, "app") ?? null,
+  };
+}
+
+// Returns only derived facts. The tester address itself never leaves this
+// function, so it cannot reach an error message, a plan, or an audit log.
+async function findBetaTesterByEmail(email) {
+  const response = await apiRequest(
+    buildPath("/v1/betaTesters", {
+      "filter[email]": email,
+      "fields[betaTesters]": "firstName,lastName,inviteType,state,betaGroups",
+      "limit[betaGroups]": 50,
+      include: "betaGroups",
+      limit: 10,
+    }),
+  );
+  const testers = responseData(response) ?? [];
+  if (testers.length > 1) {
+    throw new Error(
+      `Apple returned ${testers.length} beta testers for one address; resolve the duplicate in App Store Connect before adding it`,
+    );
+  }
+  const tester = testers[0];
+  if (!tester) return null;
+  return {
+    id: tester.id,
+    state: tester.attributes?.state ?? null,
+    inviteType: tester.attributes?.inviteType ?? null,
+    groupIds: relationshipIds(tester, "betaGroups"),
+  };
+}
+
+// Reading the team user list needs a privileged key, so a denial is reported
+// rather than treated as "not a team member".
+async function findTeamUserByEmail(email) {
+  const target = email.toLowerCase();
+  try {
+    const { data } = await fetchAllPages(
+      buildPath("/v1/users", {
+        "fields[users]": "username,roles,allAppsVisible,visibleApps",
+        "limit[visibleApps]": 50,
+        include: "visibleApps",
+        limit: 200,
+      }),
+      10,
+    );
+    const user = data.find(
+      (entry) => entry.attributes?.username?.toLowerCase() === target,
+    );
+    return {
+      readable: true,
+      user: user
+        ? {
+            id: user.id,
+            roles: user.attributes?.roles ?? [],
+            allAppsVisible: user.attributes?.allAppsVisible === true,
+            visibleAppIds: relationshipIds(user, "visibleApps"),
+          }
+        : null,
+    };
+  } catch (error) {
+    return { readable: false, status: error?.status ?? null, user: null };
+  }
+}
+
+async function checkInternalTesterEligibility(email, appId) {
+  const lookup = await findTeamUserByEmail(email);
+  if (!lookup.readable) {
+    return {
+      checked: false,
+      reason: `App Store Connect users are not readable with this key${
+        lookup.status ? ` (HTTP ${lookup.status})` : ""
+      }; a person must confirm the address belongs to a team member`,
+    };
+  }
+  if (!lookup.user) {
+    throw new Error(
+      "An internal beta group accepts only App Store Connect users on this team, and this address is not one of them. Invite the person as a user in App Store Connect first, or add them to an external group instead.",
+    );
+  }
+  const roles = lookup.user.roles;
+  if (!roles.some((role) => INTERNAL_TESTER_ROLES.has(role))) {
+    throw new Error(
+      `That team user holds ${roles.join(", ") || "no"} role(s); internal testing needs one of ${[...INTERNAL_TESTER_ROLES].join(", ")}`,
+    );
+  }
+  if (!lookup.user.allAppsVisible && !lookup.user.visibleAppIds.includes(appId)) {
+    throw new Error(
+      "That team user cannot see this app in App Store Connect, so they cannot be an internal tester for it. Give them access to the app first.",
+    );
+  }
+  return { checked: true, userId: lookup.user.id, roles };
 }
 
 async function fetchDirectAppRelationship(path, fields, relationship, id, appId, label) {
@@ -1258,6 +1421,59 @@ function normalizeCapability(options) {
   return { requested: raw, capability };
 }
 
+// Never request profileContent or certificateContent. Neither is needed to
+// answer "can this machine sign yet", and both are payloads this skill has no
+// reason to hold.
+async function listBundleIdProfiles(bundleIdResourceId) {
+  const response = await apiRequest(
+    buildPath(`/v1/bundleIds/${bundleIdResourceId}/profiles`, {
+      "fields[profiles]":
+        "name,platform,profileType,profileState,expirationDate",
+      limit: 200,
+    }),
+  );
+  return (responseData(response) ?? []).map((profile) => ({
+    id: profile.id,
+    ...profile.attributes,
+  }));
+}
+
+async function listDistributionCertificates() {
+  const response = await apiRequest(
+    buildPath("/v1/certificates", {
+      "fields[certificates]":
+        "name,certificateType,displayName,platform,expirationDate",
+      limit: 200,
+    }),
+  );
+  return (responseData(response) ?? [])
+    .filter((certificate) =>
+      /DISTRIBUTION/.test(certificate.attributes?.certificateType ?? ""),
+    )
+    .map((certificate) => ({ id: certificate.id, ...certificate.attributes }));
+}
+
+// A certificate existing in the account does not mean this Mac holds its
+// private key, and no API can report that. Read the local identities instead,
+// and keep only their names.
+async function localSigningIdentities() {
+  try {
+    const { stdout } = await execFileAsync(
+      "/usr/bin/security",
+      ["find-identity", "-v", "-p", "codesigning"],
+      { timeout: 15_000 },
+    );
+    return {
+      readable: true,
+      identities: [...stdout.matchAll(/^\s*\d+\)\s+[0-9A-F]{40}\s+"([^"]+)"/gm)].map(
+        (match) => match[1],
+      ),
+    };
+  } catch {
+    return { readable: false, identities: [] };
+  }
+}
+
 async function showBundleIds(options) {
   const identifier = options["bundle-id"];
   const response = await apiRequest(
@@ -1295,6 +1511,60 @@ async function showAppRecordGuide(options) {
         (capability) => capability.attributes?.capabilityType,
       )
     : [];
+  const [profiles, certificates, localIdentities] = bundle
+    ? await Promise.all([
+        listBundleIdProfiles(bundle.id).catch(() => null),
+        listDistributionCertificates().catch(() => null),
+        localSigningIdentities(),
+      ])
+    : [null, null, { readable: false, identities: [] }];
+  // Any *_APP_STORE profile type qualifies, so this stays correct as Apple adds
+  // platforms instead of depending on a hand-kept platform-to-type map.
+  const storeProfiles = (profiles ?? []).filter(
+    (profile) =>
+      typeof profile.profileType === "string" &&
+      profile.profileType.endsWith("_APP_STORE") &&
+      profile.profileState === "ACTIVE",
+  );
+  const signingAssetsReady =
+    storeProfiles.length > 0 && (certificates ?? []).length > 0;
+  const firstBuildGuide =
+    !bundle || signingAssetsReady
+      ? null
+      : {
+          why:
+            "Archiving signs the app, so a distribution certificate and a store " +
+            "provisioning profile must already exist. xcode-upload.sh archive runs " +
+            "with the App Store Connect key blocked and without " +
+            "-allowProvisioningUpdates, so it never creates them, and a first build " +
+            "on a new bundle ID fails to sign until they exist.",
+          missing: [
+            storeProfiles.length === 0
+              ? "No ACTIVE App Store provisioning profile for this bundle ID."
+              : null,
+            (certificates ?? []).length === 0
+              ? "No distribution certificate in the account."
+              : null,
+            localIdentities.readable && localIdentities.identities.length === 0
+              ? "No code-signing identity in this Mac's Keychain."
+              : null,
+          ].filter(Boolean),
+          chooseOne: [
+            "Xcode: open the project, select the target, Signing & Capabilities, " +
+              "enable Automatically manage signing, choose the team, and archive once. " +
+              "Xcode creates the certificate, stores its private key in this Mac's " +
+              "Keychain, and creates the profile.",
+            "xcodebuild -allowProvisioningUpdates, run by hand in the app repository. " +
+              "This is outside the skill and outside its credential isolation, so run " +
+              "it yourself rather than through the archive command.",
+          ],
+          thenReturnTo:
+            "Re-run this command. Once signingAssetsReady is true, continue with " +
+            "xcode-upload.sh archive as normal.",
+          note:
+            "Enabling a capability afterwards can invalidate the profile. Regenerate " +
+            "it the same way, then archive again.",
+        };
 
   const guide = app
     ? null
@@ -1338,12 +1608,28 @@ async function showAppRecordGuide(options) {
         bundleIdRegistered: Boolean(bundle),
         bundleIdResourceId: bundle?.id ?? null,
         capabilities,
+        signing: {
+          profiles: profiles ?? "unavailable",
+          storeProfiles,
+          distributionCertificates: certificates ?? "unavailable",
+          localSigningIdentities: localIdentities.readable
+            ? localIdentities.identities
+            : "unavailable",
+          signingAssetsReady,
+          keychainCaveat:
+            "A certificate at Apple is only half of it. Signing also needs its " +
+            "private key in this Mac's Keychain, which no App Store Connect API " +
+            "reports; localSigningIdentities is the local half of that answer.",
+          firstBuildGuide,
+        },
         appRecordExists: Boolean(app),
         appId: app?.id ?? null,
         appName: app?.attributes?.name ?? null,
-        nextStep: app
-          ? "The app record exists. Continue with init-manifest."
-          : "Create the app record by hand using the guide below, then re-run this command.",
+        nextStep: !app
+          ? "Create the app record by hand using the guide below, then re-run this command."
+          : signingAssetsReady
+            ? "The app record and the signing assets exist. Continue with init-manifest."
+            : "The app record exists, but this bundle ID cannot be signed yet. Follow signing.firstBuildGuide, then continue with init-manifest.",
         appRecordGuide: guide,
       }),
       null,
@@ -1501,7 +1787,44 @@ async function waitForBuild(options) {
         `${JSON.stringify({ checkedAt: new Date().toISOString(), buildId: build.id, processingState })}\n`,
       );
       if (processingState === "VALID") {
-        process.stdout.write(`${JSON.stringify(response.body, null, 2)}\n`);
+        // The IDs the next steps need are relationship links buried in the
+        // JSON:API document. Resolve them here so nobody has to hand-query the
+        // API for a buildBetaDetail ID before set-beta-auto-notify.
+        const included = response.body?.included ?? [];
+        const findIncluded = (type, id) =>
+          included.find((item) => item.type === type && item.id === id);
+        const preReleaseVersion = findIncluded(
+          "preReleaseVersions",
+          relationshipId(build, "preReleaseVersion"),
+        );
+        const buildBetaDetailId = relationshipId(build, "buildBetaDetail") ?? null;
+        const buildBetaDetail = buildBetaDetailId
+          ? findIncluded("buildBetaDetails", buildBetaDetailId)
+          : undefined;
+        process.stdout.write(
+          `${JSON.stringify(
+            redactSensitive({
+              resolved: {
+                buildId: build.id,
+                buildBetaDetailId,
+                buildNumber: build.attributes?.version ?? null,
+                marketingVersion: preReleaseVersion?.attributes?.version ?? null,
+                platform: preReleaseVersion?.attributes?.platform ?? null,
+                processingState,
+                buildAudienceType: build.attributes?.buildAudienceType ?? null,
+                usesNonExemptEncryption:
+                  build.attributes?.usesNonExemptEncryption ?? null,
+                internalBuildState:
+                  buildBetaDetail?.attributes?.internalBuildState ?? null,
+                externalBuildState:
+                  buildBetaDetail?.attributes?.externalBuildState ?? null,
+              },
+              response: response.body,
+            }),
+            null,
+            2,
+          )}\n`,
+        );
         return;
       }
       if (processingState === "FAILED" || processingState === "INVALID") {
@@ -1595,8 +1918,13 @@ async function verifyMutationTarget(options, operation, app) {
           app,
           buildResult,
         });
-        const isInternalGroup =
-          responseData(groupResult)?.attributes?.isInternalGroup === true;
+        const groupAttributes = responseData(groupResult)?.attributes ?? {};
+        if (groupAttributes.hasAccessToAllBuilds === true) {
+          throw new Error(
+            "The beta group now receives every build automatically; Apple refuses an explicit build link, so this step is neither needed nor possible",
+          );
+        }
+        const isInternalGroup = groupAttributes.isInternalGroup === true;
         if (
           !isInternalGroup &&
           operation.distributionProvenance.receipt.distributionScope ===
@@ -1618,6 +1946,41 @@ async function verifyMutationTarget(options, operation, app) {
         }
         return;
       }
+    case "create-beta-group": {
+      assertDirectApp();
+      return;
+    }
+    case "add-beta-tester": {
+      const planned = operation.testerPlan;
+      const groupResult = await fetchBetaGroupTarget(planned.groupId, appId);
+      const isInternalGroup =
+        responseData(groupResult)?.attributes?.isInternalGroup === true;
+      if (isInternalGroup !== planned.isInternalGroup) {
+        throw new Error(
+          "The beta group audience changed since the dry run; rerun it and obtain approval again",
+        );
+      }
+      const current = await findBetaTesterByEmail(planned.email);
+      if (current?.groupIds.includes(planned.groupId)) {
+        throw new Error(
+          `That address is already a tester in beta group ${planned.groupId}; nothing to add`,
+        );
+      }
+      if (planned.mode === "CREATE_TESTER" && current) {
+        throw new Error(
+          `That address now exists as beta tester ${current.id}; rerun the dry run so the plan links the existing tester instead of creating one`,
+        );
+      }
+      if (planned.mode === "LINK_EXISTING_TESTER" && current?.id !== planned.existingTesterId) {
+        throw new Error(
+          "The existing beta tester for that address changed since the dry run; rerun it and obtain approval again",
+        );
+      }
+      if (isInternalGroup) {
+        await checkInternalTesterEligibility(planned.email, appId);
+      }
+      return;
+    }
     case "create-beta-build-localization":
       await fetchBuildTarget(resourceId(options, "build-id"), appId);
       return;
@@ -1877,9 +2240,188 @@ async function runMutation(options, operation) {
 }
 
 async function commandOperation(command, options) {
+  if (command === "create-beta-group") {
+    const appId = resourceId(options, "app-id");
+    const name = requiredOption(options, "name").trim();
+    const isInternalGroup = booleanValue(
+      requiredOption(options, "internal"),
+      "--internal",
+    );
+    const hasAccessToAllBuilds =
+      options["has-access-to-all-builds"] === undefined
+        ? false
+        : booleanValue(
+            options["has-access-to-all-builds"],
+            "--has-access-to-all-builds",
+          );
+    if (hasAccessToAllBuilds && !isInternalGroup) {
+      throw new Error(
+        "--has-access-to-all-builds applies only to an internal group",
+      );
+    }
+    // A public link lets anyone holding the URL join the beta. That is a reach
+    // decision this skill has no gate for, so it is refused here rather than
+    // hidden inside group creation.
+    for (const rejected of [
+      "public-link-enabled",
+      "public-link-limit",
+      "public-link-limit-enabled",
+    ]) {
+      if (options[rejected] !== undefined) {
+        throw new Error(
+          `--${rejected} is not available here. A TestFlight public link admits anyone with the URL; set it in App Store Connect after deciding that separately.`,
+        );
+      }
+    }
+    const existing = await findBetaGroupByName(appId, name);
+    if (existing) {
+      throw new Error(
+        `Beta group ${name} already exists as ${existing.id}; nothing to create`,
+      );
+    }
+    return {
+      command,
+      confirmation: "CREATE_BETA_GROUP",
+      method: "POST",
+      path: "/v1/betaGroups",
+      body: {
+        data: {
+          type: "betaGroups",
+          attributes: {
+            name,
+            isInternalGroup,
+            // hasAccessToAllBuilds is an internal-group attribute and a public
+            // link is an external-group one. Send each only where it applies
+            // rather than making Apple reject the other half.
+            ...(isInternalGroup
+              ? { hasAccessToAllBuilds }
+              : { publicLinkEnabled: false }),
+          },
+          relationships: { app: { data: { type: "apps", id: appId } } },
+        },
+      },
+      approvalContext: {
+        appId,
+        name,
+        isInternalGroup,
+        hasAccessToAllBuilds: isInternalGroup
+          ? hasAccessToAllBuilds
+          : "not applicable to an external group",
+        reach: isInternalGroup
+          ? "App Store Connect users on this team only, up to 100"
+          : "External testers, who can install only after Beta App Review approves a build",
+      },
+      preconditions: [
+        isInternalGroup
+          ? "An internal group accepts only App Store Connect users on this team, up to 100."
+          : "An external group needs Beta App Review before any tester can install a build.",
+        hasAccessToAllBuilds
+          ? "hasAccessToAllBuilds gives this group every future build automatically, with no per-build approval. add-beta-group is then neither needed nor accepted for it."
+          : "Builds reach this group only through add-beta-group, one approval at a time.",
+        "Creating a group adds no testers and no builds.",
+      ],
+      preflight: async () => {
+        const current = await findBetaGroupByName(appId, name);
+        if (current) {
+          throw new Error(
+            `Beta group ${name} now exists as ${current.id}; refusing to create a duplicate`,
+          );
+        }
+      },
+    };
+  }
+
+  if (command === "add-beta-tester") {
+    const groupId = resourceId(options, "group-id");
+    const email = emailOption(options, "email");
+    const firstName = options["first-name"]?.trim() || undefined;
+    const lastName = options["last-name"]?.trim() || undefined;
+    const group = await fetchBetaGroupAudience(groupId);
+    const existing = await findBetaTesterByEmail(email);
+    if (existing?.groupIds.includes(groupId)) {
+      throw new Error(
+        `That address is already a tester in beta group ${groupId}; nothing to add`,
+      );
+    }
+    if (existing && (firstName || lastName)) {
+      throw new Error(
+        `That address already exists as beta tester ${existing.id}; Apple keeps the stored name, so drop --first-name and --last-name and rerun`,
+      );
+    }
+    if (group.isInternalGroup && !group.appId) {
+      throw new Error(
+        `Beta group ${groupId} did not report the app it belongs to, so internal tester eligibility cannot be checked`,
+      );
+    }
+    const eligibility = group.isInternalGroup
+      ? await checkInternalTesterEligibility(email, group.appId)
+      : null;
+    const mode = existing ? "LINK_EXISTING_TESTER" : "CREATE_TESTER";
+    const body = existing
+      ? { data: [{ type: "betaTesters", id: existing.id }] }
+      : {
+          data: {
+            type: "betaTesters",
+            attributes: {
+              email,
+              ...(firstName ? { firstName } : {}),
+              ...(lastName ? { lastName } : {}),
+            },
+            relationships: {
+              betaGroups: { data: [{ type: "betaGroups", id: groupId }] },
+            },
+          },
+        };
+    return {
+      command,
+      confirmation: "ADD_BETA_TESTER",
+      method: "POST",
+      path: existing
+        ? `/v1/betaGroups/${groupId}/relationships/betaTesters`
+        : "/v1/betaTesters",
+      body,
+      approvalContext: {
+        mode,
+        groupId,
+        groupName: group.name,
+        isInternalGroup: group.isInternalGroup,
+        // Masked on purpose. The plan hash covers the exact address.
+        testerMask: maskEmail(email),
+        existingTesterId: existing?.id ?? null,
+        existingTesterState: existing?.state ?? null,
+        internalTesterCheck: eligibility ?? "not applicable to an external group",
+      },
+      preconditions: [
+        group.isInternalGroup
+          ? "The address belongs to an App Store Connect user on this team with a role that allows internal testing."
+          : "Apple emails this person a TestFlight invitation once an approved build is available. That reaches a real inbox and cannot be unsent.",
+        mode === "CREATE_TESTER"
+          ? "No beta tester exists for this address yet, so this creates one."
+          : "A beta tester already exists for this address; this only links it to the group.",
+        "Confirm the masked address against what the requester actually gave you.",
+      ],
+      testerPlan: {
+        email,
+        groupId,
+        mode,
+        existingTesterId: existing?.id ?? null,
+        isInternalGroup: group.isInternalGroup,
+      },
+    };
+  }
+
   if (command === "add-beta-group") {
     const groupId = resourceId(options, "group-id");
     const buildId = resourceId(options, "build-id");
+    const group = await fetchBetaGroupAudience(groupId);
+    // Apple rejects an explicit build link for a group that already receives
+    // every build. Saying so here beats letting the operator approve a plan
+    // that can only fail.
+    if (group.hasAccessToAllBuilds) {
+      throw new Error(
+        `Beta group ${groupId} has hasAccessToAllBuilds enabled, so Apple distributes every build to it automatically and refuses an explicit link. Skip this step and confirm the build in the group with status.`,
+      );
+    }
     const distributionProvenance = await loadDistributionProvenance(options);
     return {
       command,
@@ -1893,6 +2435,9 @@ async function commandOperation(command, options) {
       ],
       approvalContext: {
         buildId,
+        groupId,
+        groupName: group.name,
+        isInternalGroup: group.isInternalGroup,
         uploadProvenance:
           storeProvenanceApprovalContext(distributionProvenance),
       },
@@ -2738,6 +3283,9 @@ function printUsage() {
       "the printed --confirm phrase, and --plan-sha256 HASH are supplied:",
       "  provision-bundle-id --name NAME [--bundle-id-platform UNIVERSAL]",
       "  provision-capability --capability TYPE [--settings-file /absolute/settings.json]",
+      "  create-beta-group --app-id ID --name NAME --internal true|false",
+      "    [--has-access-to-all-builds true|false]",
+      "  add-beta-tester --group-id ID --email ADDRESS [--first-name NAME] [--last-name NAME]",
       "  add-beta-group --group-id ID --build-id ID --provenance-file /absolute/receipt.json",
       "  create-beta-build-localization --build-id ID --locale LOCALE --attributes-file /absolute/attributes.json",
       "  update-beta-build-localization --localization-id ID --attributes-file /absolute/attributes.json",

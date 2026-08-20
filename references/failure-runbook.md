@@ -64,6 +64,23 @@ incident evidence. Apple may already have consumed the build number; after a
 separate decision, use a new build number and a new provenance output path for
 a new upload rather than overwriting or deleting the ambiguous reservation.
 
+## Signing and TestFlight setup refusals
+
+These stop before anything is written at Apple. Each names the next action, so
+report it and take that action rather than working around the command.
+
+| Message | Meaning and next action |
+|---|---|
+| `xcodebuild` fails to sign a first archive on a new bundle ID | The distribution certificate or the store provisioning profile does not exist yet. Run `app-record-guide` and follow `signing.firstBuildGuide`. Archive creation never creates signing assets, by design. |
+| Signing fails although Apple lists a distribution certificate | The account has the certificate but this Mac does not have its private key. Compare `signing.distributionCertificates` with `signing.localSigningIdentities`, and re-create or import the identity through Xcode. |
+| `has hasAccessToAllBuilds enabled ... refuses an explicit link` | The group already receives every build. Skip `add-beta-group` and confirm the build in the group with `status`. |
+| `Build auto-notify must be explicitly disabled before adding a beta group` | Run `set-beta-auto-notify --build-beta-detail-id ID --enabled false` first. The ID is `resolved.buildBetaDetailId` from `wait-build`, not the build ID. |
+| `An internal beta group accepts only App Store Connect users on this team` | The address is not a team user. Add them as an App Store Connect user first, or use an external group. Never silently switch groups. |
+| `That team user holds ... role(s)` or `cannot see this app` | The user exists but cannot be an internal tester. Fix the role or the app access in App Store Connect. |
+| `That address already exists as beta tester ID` | Drop `--first-name` and `--last-name` and rerun; Apple keeps the stored name. |
+| `already a tester in beta group` / `Beta group NAME already exists` | Already done. Confirm with `status` and move on. |
+| `App Store Connect users are not readable with this key` | Reported, not fatal: `internalTesterCheck.checked` is false. A person must confirm the address belongs to a team member before the approval. |
+
 ## Asynchronous states
 
 - Build not visible after upload: keep polling by app, platform, marketing
